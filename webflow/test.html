@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>eFellows DNA — self-contained test</title>
+<!-- This mirrors the Webflow embed, but points at the local dna.js so you can
+     preview the exact production build (no control panel). -->
+<style>html,body{margin:0;background:#0b0d0e;}</style>
+</head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="./dna.js"></script>
+</body>
+</html>

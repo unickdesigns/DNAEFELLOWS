@@ -16,25 +16,25 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 // `at` = scroll position (0..1 down the page) where the line starts forming.
 // `end` = where the whole theme clears. Wrap accent words in <em>…</em>.
 const COPY = [
-  { end: 0.355, lines: [
+  { end: 0.44, lines: [
     { at: -0.04, html: "Clients trust us because" },
-    { at: 0.13,  html: "we are professional skeptics" },
-    { at: 0.24,  html: "and think from <em>first principles</em>" },
+    { at: 0.09,  html: "we are professional skeptics" },
+    { at: 0.17,  html: "<em>and think from first principles</em>" },
   ]},
-  { end: 0.685, lines: [
-    { at: 0.39, html: "Clients avoid repeated problems because" },
-    { at: 0.49, html: "we suffer from chronic curiosity" },
-    { at: 0.59, html: "and think from <em>first principles</em>" },
+  { end: 0.88, lines: [
+    { at: 0.48, html: "Clients avoid repeated problems because" },
+    { at: 0.56, html: "we suffer from chronic curiosity" },
+    { at: 0.64, html: "<em>and think from first principles</em>" },
   ]},
   { end: 1.05, lines: [
-    { at: 0.72, html: "Clients hire us to build systems because" },
-    { at: 0.81, html: "we are methodical" },
-    { at: 0.90, html: "so we <em>enforce formalism</em>" },
+    { at: 0.82,  html: "Clients hire us to build systems because" },
+    { at: 0.855, html: "we are methodical" },
+    { at: 0.89,  html: "<em>so we enforce formalism</em>" },
   ]},
 ];
 
 const OPT = {
-  scrollVh:    1100,                            // scroll runway length (vh). Set 0 if your page already scrolls.
+  scrollVh:    1700,                            // scroll runway length (vh). Set 0 if your page already scrolls.
   fontFamily:  '"Upton","Oswald",sans-serif',  // resolved type + the font the dots are sampled from
   fontUrl:     "",                             // URL to Upton.woff2 (leave "" to fall back to Oswald)
   fontSizePx:  64,                             // desktop headline size
@@ -81,8 +81,8 @@ html{ overflow-x:clip; }
 .dna-line em{ font-style:normal; color:${OPT.accent}; }
 .dna-scrollspace{ height:${OPT.scrollVh}vh; position:relative; z-index:1; pointer-events:none; }
 @media (max-width:760px){
-  .dna-theme{ left:24px; right:24px; max-width:none; top:auto; bottom:12vh; transform:none; }
-  .dna-line{ font-size:clamp(26px,7vw,40px); }
+  .dna-theme{ left:20px; right:20px; max-width:none; top:50%; bottom:auto; transform:translateY(-50%); text-align:center; }
+  .dna-line{ font-size:clamp(44px,13vw,80px); }
 }`;
 document.head.appendChild(style);
 
@@ -287,7 +287,7 @@ let textLines = [];
 function sampleLine(ln) {
   const rect = ln.getBoundingClientRect();
   const W = Math.max(2, Math.ceil(rect.width)), H = Math.max(2, Math.ceil(rect.height) + 6);
-  const fontPx = isMobile() ? Math.min(40, Math.max(26, innerWidth * 0.07)) : OPT.fontSizePx;
+  const fontPx = isMobile() ? Math.min(80, Math.max(44, innerWidth * 0.13)) : OPT.fontSizePx;
   const lh = fontPx * 1.05;
   const oc = document.createElement("canvas"); oc.width = W; oc.height = H;
   const c = oc.getContext("2d");
@@ -308,7 +308,10 @@ function sampleLine(ln) {
   }
   if (cur.length) rows.push(cur);
   rows.forEach((row, ri) => {
-    let cx = 0; const cy = fontPx * 0.82 + ri * lh;
+    while (row.length && row[row.length - 1].sp) row.pop();   // trim trailing space
+    let rowW = 0; for (const w of row) rowW += c.measureText(w.t).width;
+    let cx = isMobile() ? Math.max(0, (W - rowW) / 2) : 0;    // centered on mobile
+    const cy = fontPx * 0.82 + ri * lh;
     for (const w of row) { c.fillStyle = w.em ? ACCENT_COL : TEXT_COL; c.fillText(w.t, cx, cy); cx += c.measureText(w.t).width; }
   });
   const img = c.getImageData(0, 0, W, H).data;
@@ -389,13 +392,13 @@ onResize();
 /* --------------------------- scene update --------------------------------- */
 function updateScene(p, t) {
   uniforms.uRevealA.value = clamp(0.80 + smoothstep(0.0, 0.10, p) * 0.35, 0, 1);
-  uniforms.uRevealB.value = smoothstep(0.40, 0.63, p);
-  uniforms.uRevealR.value = smoothstep(0.72, 0.94, p);
-  const focus = bump(p, 0.30, 0.045);
+  uniforms.uRevealB.value = smoothstep(0.48, 0.70, p);
+  uniforms.uRevealR.value = smoothstep(0.82, 0.96, p);
+  const focus = bump(p, 0.31, 0.045);
   uniforms.uFocus.value = focus;
   uniforms.uTime.value = reduceMotion ? 0 : t;
-  const connect = smoothstep(0.84, 0.97, p);
-  uniforms.uConnect.value = connect + bump(p, 0.93, 0.02) * 0.9;
+  const connect = smoothstep(0.88, 0.98, p);
+  uniforms.uConnect.value = connect + bump(p, 0.955, 0.02) * 0.9;
   helix.rotation.y = Math.sin(t * 0.1) * P.sway;
   helix.rotation.x = Math.sin(t * 0.15) * 0.02;
   const dolly = smoothstep(0, 1, p);

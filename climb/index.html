@@ -423,37 +423,49 @@
     const T = pt => [(pt[0]-cam.x)*scale + W/2, (pt[1]-cam.y)*scale + Hh/2];
     const tw = seed => REDUCED ? 1 : 1 + 0.05*Math.sin(t*2.1 + seed*TAU);
 
+    /* the pool of light: the held hands illuminate a region; the rest falls to black.
+       wide + dim on the reveal and finale, tight + intimate during the ascent. */
+    const poolC = solved.shared;
+    const wide = Math.max(ss(0.085, 0.25, p) * (1 - ss(0.30, 0.42, p)), ss(0.84, 0.96, p));
+    const poolR = lerp(lerp(760, 1500, ss(0.27, 0.86, p)), 3600, wide);
+    const vis = (x, y) => {
+      const dd = Math.hypot(x - poolC[0], y - poolC[1]);
+      return 0.05 + 0.95 * ss(poolR, poolR*0.30, dd);
+    };
+
     /* ground */
     const gA = ss(P_ASSEMBLE[0], P_ASSEMBLE[1], p);
     for (const g of groundDots){
       const [x,y] = T([g.x, g.y]);
       if (x < -20 || x > W+20) continue;
-      dot(x, y, g.r*scale*tw(g.seed), GREY, 0.5 * gA);
+      dot(x, y, g.r*scale*tw(g.seed), GREY, 0.5 * gA * vis(g.x, g.y));
     }
 
-    /* mountain: sweeps up from the base */
+    /* mountain: sweeps up from the base, lit only near the pair */
     const mA = ss(P_MOUNTAIN[0], P_MOUNTAIN[1], p);
     for (const m of mountainDots){
       const local = ss(m.alt*0.72, m.alt*0.72 + 0.24, mA);
       if (local <= 0.01) continue;
+      const v = vis(m.x, m.y);
+      if (v <= 0.055) continue;
       const [x,y] = T([m.x, m.y + (1-local)*46]);
       if (x < -20 || x > W+20 || y < -20 || y > Hh+20) continue;
       const pop = local < 1 ? 1 + 0.16*Math.sin(local*Math.PI) : 1;
-      dot(x, y, m.r*scale*local*pop*tw(m.seed), m.snow ? SNOW : GREY, m.snow ? m.al + 0.18 : m.al);
+      dot(x, y, m.r*scale*local*pop*tw(m.seed), m.snow ? SNOW : GREY, (m.snow ? m.al + 0.18 : m.al) * v);
     }
 
     /* clouds */
     if (mA > 0.6){
       const cA = ss(0.6, 1, mA) * 0.16;
       for (const c of clouds){
-        const drift = REDUCED ? 0 : Math.sin(t*0.07 + c.ci*2.2) * 60 + t*4 % 900;
-        const [x,y] = T([c.cx + c.ox + (REDUCED?0:((t*6 + c.ci*300) % 1400) - 700), c.cy + c.oy]);
+        const wx = c.cx + c.ox + (REDUCED?0:((t*6 + c.ci*300) % 1400) - 700);
+        const [x,y] = T([wx, c.cy + c.oy]);
         if (x < -30 || x > W+30) continue;
-        dot(x, y, c.r*scale, "#7a8791", cA * (0.7 + 0.3*Math.sin(c.seed*TAU)));
+        dot(x, y, c.r*scale, "#7a8791", cA * (0.7 + 0.3*Math.sin(c.seed*TAU)) * vis(wx, c.cy + c.oy));
       }
     }
 
-    /* figures */
+    /* figures — lit by the connection: dots brighten toward the held hands, with a soft bloom */
     const aA = ss(P_ASSEMBLE[0], P_ASSEMBLE[1], p);
     const frames = solved.J.map(boneFrames);
     for (const d of DOTS){
@@ -468,7 +480,11 @@
       if (st < 1){ x = lerp(d.sx, x, smooth(st)); y = lerp(d.sy, y, smooth(st)); }
       const [sx, sy] = T([x, y]);
       const r = d.r * scale * tw(d.seed) * (0.2 + 0.8*st);
-      dot(sx, sy, r, BLUE, 0.25 + 0.75*st);
+      // luminance: bright near the spark, dimming outward through the body
+      const lum = 0.30 + 0.70 * ss(560, 60, Math.hypot(x - poolC[0], y - poolC[1]));
+      const col = `rgb(${Math.round(24 + 60*lum)},${Math.round(60 + 90*lum)},245)`;
+      if (lum > 0.55) dot(sx, sy, r*2.1, col, 0.10 * lum * st);   // bloom halo
+      dot(sx, sy, r, col, (0.25 + 0.75*st) * (0.45 + 0.55*lum));
     }
 
     /* the rope: when the slope stretches them apart, the hand-hold becomes a dotted line */
@@ -502,6 +518,18 @@
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(hx, hy, rr*2.4, 0, TAU); ctx.fill();
       }
+    }
+
+    /* vignette: the frame falls away into darkness around the light */
+    {
+      const [vx, vy] = T(poolC);
+      const rr = Math.max(W, Hh) * lerp(0.55, 1.05, wide);
+      const g = ctx.createRadialGradient(vx, vy, rr*0.35, vx, vy, rr);
+      g.addColorStop(0, "rgba(11,13,14,0)");
+      g.addColorStop(1, "rgba(11,13,14,0.82)");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, Hh);
     }
 
     /* headline */

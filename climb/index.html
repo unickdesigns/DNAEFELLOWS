@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>eFellows — over every hurdle</title>
+<title>eFellows — over every mountain</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
@@ -12,10 +12,10 @@
   html{ scroll-behavior:auto; }
   body{ background:#0b0d0e; font-family:"Upton","Oswald",sans-serif; }
   canvas#gl{ position:fixed; inset:0; width:100vw; height:100vh; display:block; }
-  .scrollspace{ height:600vh; }
+  .scrollspace{ height:800vh; }
 
   .headline{
-    position:fixed; left:clamp(24px,7vw,150px); top:42vh;
+    position:fixed; left:clamp(24px,7vw,150px); top:16vh;
     font-size:clamp(30px,4.2vw,54px); font-weight:600; letter-spacing:-0.01em;
     color:#C8D1D6; white-space:nowrap; opacity:0; pointer-events:none;
   }
@@ -26,7 +26,7 @@
 
 <canvas id="gl"></canvas>
 <div class="scrollspace"></div>
-<div class="headline" id="headline">Over every hurdle, <em>together</em>.</div>
+<div class="headline" id="headline">Over every mountain, <em>together</em>.</div>
 
 <script>
 (async () => {
@@ -38,14 +38,23 @@
   const FORCE_P = qs.has("p") ? parseFloat(qs.get("p")) : null;
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  const BLUE = "#2C60F5", GREY = "#5b676d", BG = "#0b0d0e";
+  const BLUE = "#2C60F5", GREY = "#5b676d", SNOW = "#9fb0b8", BG = "#0b0d0e";
+
+  /* ---------- helpers ---------- */
+  const sub = (a,b) => [a[0]-b[0], a[1]-b[1]];
+  const add = (a,b) => [a[0]+b[0], a[1]+b[1]];
+  const rot = (v,ang) => { const c=Math.cos(ang), s=Math.sin(ang); return [v[0]*c - v[1]*s, v[0]*s + v[1]*c]; };
+  const lerp = (a,b,t) => a + (b-a)*t;
+  const lerpP = (a,b,t) => [lerp(a[0],b[0],t), lerp(a[1],b[1],t)];
+  const smooth = t => t*t*(3-2*t);
+  const ss = (a,b,x) => { const t = Math.min(1, Math.max(0, (x-a)/(b-a))); return smooth(t); };
 
   /* ---------- the real SVG dots ---------- */
   const DOTS = await fetch("dots.json").then(r => r.json());
-  const SPLIT_X = 454;                       // gap between the two figures
+  const SPLIT_X = 454;
   DOTS.forEach((d, i) => { d.fig = d.x < SPLIT_X ? 0 : 1; d.seed = (i * 0.618) % 1; });
 
-  /* ---------- skeletons (rest pose, svg coords) ---------- */
+  /* ---------- skeletons (rest pose = the SVG) ---------- */
   // fig 0 = climber (left, the client) · fig 1 = helper (right, eFellows)
   const REST = [
     { pelvis:[222,400], chest:[213,215], neck:[204,135], head:[202,42],
@@ -67,32 +76,26 @@
     ["hipR","kneeR"], ["kneeR","footR"],
   ];
   const len = (a,b) => Math.hypot(b[0]-a[0], b[1]-a[1]);
-  // limb lengths from rest
   const LIMB = REST.map(S => ({
     armLup:len(S.shoulderL,S.elbowL), armLlo:len(S.elbowL,S.handL),
     armRup:len(S.shoulderR,S.elbowR), armRlo:len(S.elbowR,S.handR),
     legLup:len(S.hipL,S.kneeL), legLlo:len(S.kneeL,S.footL),
     legRup:len(S.hipR,S.kneeR), legRlo:len(S.kneeR,S.footR),
   }));
-  // torso-local offsets (from pelvis / chest) so lean rotates them
   const OFF = REST.map(S => ({
-    chest:  sub(S.chest, S.pelvis),
-    neck:   sub(S.neck,  S.chest),
-    head:   sub(S.head,  S.neck),
-    shoulderL: sub(S.shoulderL, S.chest),
-    shoulderR: sub(S.shoulderR, S.chest),
-    hipL: sub(S.hipL, S.pelvis),
-    hipR: sub(S.hipR, S.pelvis),
+    chest: sub(S.chest, S.pelvis), neck: sub(S.neck, S.chest), head: sub(S.head, S.neck),
+    shoulderL: sub(S.shoulderL, S.chest), shoulderR: sub(S.shoulderR, S.chest),
+    hipL: sub(S.hipL, S.pelvis), hipR: sub(S.hipR, S.pelvis),
   }));
-  function sub(a,b){ return [a[0]-b[0], a[1]-b[1]]; }
-  function add(a,b){ return [a[0]+b[0], a[1]+b[1]]; }
-  function rot(v, ang){ const c=Math.cos(ang), s=Math.sin(ang); return [v[0]*c - v[1]*s, v[0]*s + v[1]*c]; }
-  function lerp(a,b,t){ return a + (b-a)*t; }
-  function lerpP(a,b,t){ return [lerp(a[0],b[0],t), lerp(a[1],b[1],t)]; }
-  function smooth(t){ return t*t*(3-2*t); }
-  function ss(a,b,x){ const t = Math.min(1, Math.max(0, (x-a)/(b-a))); return smooth(t); }
+  // gait pelvis height above planted feet — wide stance (like the SVG pose), sized to the
+  // SHORTER leg so neither leg gets clamped straight with a floating foot.
+  const STANCE = 84;                                  // half foot-spread along the slope
+  const GAITH = LIMB.map((L, i) => {
+    const shortLeg = Math.min(L.legLup + L.legLlo, L.legRup + L.legRlo) * 0.97;
+    const v = Math.sqrt(Math.max(4000, shortLeg*shortLeg - STANCE*STANCE*0.55));
+    return v + (REST[i].hipL[1] - REST[i].pelvis[1]);
+  });
 
-  /* two-bone IK: root -> target, lengths l1,l2, bend = +1/-1 side */
   function ik(root, target, l1, l2, bend){
     let dx = target[0]-root[0], dy = target[1]-root[1];
     let d = Math.hypot(dx,dy);
@@ -102,26 +105,19 @@
     const a = Math.acos(Math.min(1, Math.max(-1, (l1*l1 + d*d - l2*l2) / (2*l1*d))));
     const base = Math.atan2(dy, dx);
     const ang = base + bend * a;
-    const knee = [root[0] + l1*Math.cos(ang), root[1] + l1*Math.sin(ang)];
-    const end  = [root[0] + dx, root[1] + dy];
-    return [knee, end];
+    return [[root[0] + l1*Math.cos(ang), root[1] + l1*Math.sin(ang)], [root[0]+dx, root[1]+dy]];
   }
 
-  /* ---------- dot -> bone binding (2 nearest, smooth weights) ---------- */
+  /* ---------- dot -> bone binding ---------- */
   function segDist(p, a, b){
     const abx=b[0]-a[0], aby=b[1]-a[1];
     const t = Math.min(1, Math.max(0, ((p.x-a[0])*abx + (p.y-a[1])*aby) / (abx*abx+aby*aby)));
-    const qx=a[0]+abx*t, qy=a[1]+aby*t;
-    return { d: Math.hypot(p.x-qx, p.y-qy), t };
+    return Math.hypot(p.x-(a[0]+abx*t), p.y-(a[1]+aby*t));
   }
-  // per-dot: [{bone, w, local:[t along, n perp]}] in that bone's rest frame
   for (const d of DOTS){
     const S = REST[d.fig];
-    const cand = BONES.map((bn, bi) => {
-      const a = S[bn[0]], b = S[bn[1]];
-      const sd = segDist(d, a, b);
-      return { bi, d: sd.d };
-    }).sort((p,q) => p.d - q.d).slice(0, 2);
+    const cand = BONES.map((bn, bi) => ({ bi, d: segDist(d, S[bn[0]], S[bn[1]]) }))
+      .sort((p,q) => p.d - q.d).slice(0, 2);
     const wsum = cand.reduce((s,c) => s + 1/Math.pow(c.d + 6, 2), 0);
     d.binds = cand.map(c => {
       const bn = BONES[c.bi], a = S[bn[0]], b = S[bn[1]];
@@ -133,150 +129,100 @@
     });
   }
 
-  /* ---------- keyframe track helper ---------- */
-  function track(keys){                       // keys: [[u, value], ...] value: number|point
-    return u => {
-      if (u <= keys[0][0]) return keys[0][1];
-      for (let i = 0; i < keys.length-1; i++){
-        const [u0,v0] = keys[i], [u1,v1] = keys[i+1];
-        if (u <= u1){
-          const t = smooth((u-u0)/(u1-u0));
-          return Array.isArray(v0) ? lerpP(v0,v1,t) : lerp(v0,v1,t);
-        }
-      }
-      return keys[keys.length-1][1];
-    };
-  }
-
-  /* ---------- the story (scroll phases) ---------- */
-  const P_ASSEMBLE = [0.00, 0.14];
-  const P_BLOCK    = [0.15, 0.30];
-  const P_CLIMB    = [0.30, 0.72];
-  const P_TRIUMPH  = [0.70, 0.84];
-  const P_TEXT     = [0.85, 0.95];
-
-  /* hurdle block between the figures, under the held hands */
-  const BLOCK = { x0: 378, x1: 522, top: 460, bot: 640 };
+  /* ---------- the mountain ---------- */
   const FLOOR_Y = 630;
-  const FOOT_TOP = 436;                       // foot joint height when standing on the block
+  // left face (the climb route), summit plateau, right face
+  const FACE = [ [140,FLOOR_Y], [980,FLOOR_Y], [1300,320], [1560,-80], [1820,-520], [2080,-980], [2300,-1380], [2480,-1600], [2760,-1600] ];
+  const SIL  = [ [900,FLOOR_Y], [1300,320], [1560,-80], [1820,-520], [2080,-980], [2300,-1380], [2480,-1600], [2760,-1600], [2900,-1230], [3060,-1330], [3320,-640], [3800,FLOOR_Y] ];
 
-  /* climber keyframes over climb-phase u (0..1) */
-  const K = {
-    pelvis: track([[0,[222,400]], [0.16,[224,412]], [0.34,[266,376]], [0.55,[356,292]], [0.78,[428,226]], [1,[436,200]]]),
-    footL:  track([[0,[54,592]],  [0.30,[54,592]],  [0.52,[205,555]], [0.72,[340,478]], [0.88,[398,FOOT_TOP]], [1,[400,FOOT_TOP]]]),
-    footR:  track([[0,[336,592]], [0.18,[336,592]], [0.40,[414,FOOT_TOP+8]], [0.62,[448,FOOT_TOP]], [1,[470,FOOT_TOP]]]),
-    lean:   track([[0,0], [0.2,0.10], [0.45,0.20], [0.7,0.10], [1,0.02]]),
-    handL:  track([[0,[14,284]], [0.3,[30,240]], [0.55,[130,150]], [0.8,[280,60]], [1,[318,80]]]),
-    hand:   track([[0,[446,264]], [0.2,[448,255]], [0.42,[478,230]], [0.62,[495,172]], [0.85,[500,140]], [1,[500,132]]]),
-  };
-  /* triumph: free arm up */
-  const K_TRI = track([[0,[318,80]], [0.55,[386,-200]], [0.8,[376,-178]], [1,[380,-188]]]);
-  /* helper motion */
-  const H = {
-    lean:  track([[0,0], [0.4,-0.09], [0.75,-0.05], [1,-0.02]]),
-    pelvis:track([[0,[660,438]], [0.45,[650,440]], [1,[658,438]]]),
-    handR: track([[0,[848,262]], [1,[848,262]]]),
-  };
-  const H_TRI = track([[0,[848,262]], [0.6,[862,208]], [1,[858,216]]]);
-
-  /* ---------- pose solver ---------- */
-  function poseFigure(fig, p, time){
-    const S = REST[fig], O = OFF[fig], L = LIMB[fig];
-    const J = {};
-    const breathe = REDUCED ? 0 : Math.sin(time*0.9 + fig*2.1) * 2.2;
-    const sway    = REDUCED ? 0 : Math.sin(time*0.6 + fig*1.3) * 0.012;
-
-    const u  = ss(P_CLIMB[0], P_CLIMB[1], p);       // climb progress
-    const tr = ss(P_TRIUMPH[0], P_TRIUMPH[1], p);   // triumph progress
-
-    if (fig === 0){
-      J.pelvis = K.pelvis(u).slice();
-      J.pelvis[1] += breathe * 0.5;
-      const lean = K.lean(u) + sway;
-      J.chest = add(J.pelvis, rot(O.chest, lean));
-      J.neck  = add(J.chest,  rot(O.neck,  lean*1.2));
-      J.head  = add(J.neck,   rot(O.head,  lean*1.35));
-      J.head[1] += breathe * 0.4;
-      J.shoulderL = add(J.chest, rot(O.shoulderL, lean));
-      J.shoulderR = add(J.chest, rot(O.shoulderR, lean));
-      J.hipL = add(J.pelvis, rot(O.hipL, lean*0.4));
-      J.hipR = add(J.pelvis, rot(O.hipR, lean*0.4));
-
-      // legs -> keyframed foot targets (knees bend outward)
-      const fl = K.footL(u), fr = K.footR(u);
-      [J.kneeL, J.footL] = ik(J.hipL, fl, L.legLup, L.legLlo, -1);
-      [J.kneeR, J.footR] = ik(J.hipR, fr, L.legRup, L.legRlo, +1);
-
-      // linked hand (held by helper) + free hand
-      const hand = K.hand(u);
-      [J.elbowR, J.handR] = ik(J.shoulderR, hand, L.armRup, L.armRlo, +1);
-      const hl = tr > 0 ? K_TRI(tr) : K.handL(u);
-      [J.elbowL, J.handL] = ik(J.shoulderL, hl, L.armLup, L.armLlo, -1);
-    } else {
-      J.pelvis = H.pelvis(u).slice();
-      J.pelvis[1] += breathe * 0.5;
-      const lean = H.lean(u) + sway;
-      J.chest = add(J.pelvis, rot(O.chest, lean));
-      J.neck  = add(J.chest,  rot(O.neck,  lean*1.25));
-      // head tracks the climber's head near the end of the climb
-      const watch = ss(0.3, 0.9, u) * 0.16;
-      J.head  = add(J.neck, rot(O.head, lean*1.4 - watch));
-      J.head[1] += breathe * 0.4;
-      J.shoulderL = add(J.chest, rot(O.shoulderL, lean));
-      J.shoulderR = add(J.chest, rot(O.shoulderR, lean));
-      J.hipL = add(J.pelvis, rot(O.hipL, lean*0.3));
-      J.hipR = add(J.pelvis, rot(O.hipR, lean*0.3));
-
-      [J.kneeL, J.footL] = ik(J.hipL, [580,622], L.legLup, L.legLlo, -1);
-      [J.kneeR, J.footR] = ik(J.hipR, [846,598], L.legRup, L.legRlo, +1);
-
-      // left arm holds the shared hand; right arm subtle, lifts at triumph
-      const hand = K.hand(u);
-      [J.elbowL, J.handL] = ik(J.shoulderL, hand, L.armLup, L.armLlo, -1);
-      const hr = tr > 0 ? H_TRI(tr) : H.handR(u);
-      [J.elbowR, J.handR] = ik(J.shoulderR, hr, L.armRup, L.armRlo, +1);
+  // arc-length path along the face
+  const pathLen = [0];
+  for (let i = 1; i < FACE.length; i++) pathLen.push(pathLen[i-1] + len(FACE[i-1], FACE[i]));
+  const TOTAL = pathLen[pathLen.length-1];
+  function sample(s){
+    s = Math.min(TOTAL, Math.max(0, s));
+    let i = 1; while (i < pathLen.length-1 && pathLen[i] < s) i++;
+    const t = (s - pathLen[i-1]) / (pathLen[i] - pathLen[i-1]);
+    const p = lerpP(FACE[i-1], FACE[i], t);
+    const dir = sub(FACE[i], FACE[i-1]); const L = Math.hypot(dir[0], dir[1]);
+    return { p, ang: Math.atan2(dir[1], dir[0]), dir: [dir[0]/L, dir[1]/L] };
+  }
+  function arcAtX(x){           // arc position of a given x on the face
+    for (let i = 1; i < FACE.length; i++){
+      if (x >= FACE[i-1][0] && x <= FACE[i][0]){
+        const t = (x - FACE[i-1][0]) / (FACE[i][0] - FACE[i-1][0]);
+        return pathLen[i-1] + t * (pathLen[i] - pathLen[i-1]);
+      }
     }
-    return J;
+    return x < FACE[0][0] ? 0 : TOTAL;
   }
 
-  /* bone transforms from a posed skeleton */
-  function boneFrames(J){
-    return BONES.map(bn => {
-      const a = J[bn[0]], b = J[bn[1]];
-      const ab = sub(b, a), Lb = Math.hypot(ab[0], ab[1]) || 1;
-      const u = [ab[0]/Lb, ab[1]/Lb];
-      return { a, u, n: [-u[1], u[0]] };
-    });
+  // mountain fill dots on the same 45° lattice as the figures
+  const LAT = 31.6;
+  function inMountain(x, y){
+    // inside if below the silhouette line and above the floor extension
+    if (x < 900 || x > 3800 || y > FLOOR_Y+20) return false;
+    // find silhouette y at x
+    for (let i = 1; i < SIL.length; i++){
+      if (x >= SIL[i-1][0] && x <= SIL[i][0]){
+        const t = (x - SIL[i-1][0]) / (SIL[i][0] - SIL[i-1][0]);
+        return y >= lerp(SIL[i-1][1], SIL[i][1], t);
+      }
+    }
+    return false;
   }
-
-  /* ---------- scenery dots (same lattice as the figures) ---------- */
-  const LAT = 31.6;                            // measured from the svg
-  const blockDots = [];
+  function silDist(x, y){
+    let best = 1e9;
+    for (let i = 1; i < SIL.length; i++){
+      const a = SIL[i-1], b = SIL[i];
+      const abx=b[0]-a[0], aby=b[1]-a[1];
+      const t = Math.min(1, Math.max(0, ((x-a[0])*abx + (y-a[1])*aby) / (abx*abx+aby*aby)));
+      best = Math.min(best, Math.hypot(x-(a[0]+abx*t), y-(a[1]+aby*t)));
+    }
+    return best;
+  }
+  /* sparse, dissolving mountain: dots gather along the silhouette and fragment inward */
+  const hash2 = (x, y) => { const s = Math.sin(x*127.1 + y*311.7) * 43758.5453; return s - Math.floor(s); };
+  const mountainDots = [];
   {
-    const s = LAT * 0.5 * Math.SQRT2;          // 45° lattice row step ~22.3
+    const rowH = LAT * 0.5 * Math.SQRT2;        // 22.3
+    const colW = LAT * Math.SQRT2;               // 44.7
     let row = 0;
-    for (let y = BLOCK.top + s*0.55; y < BLOCK.bot; y += s, row++){
-      const off = (row % 2) ? s : 0;
-      for (let x = BLOCK.x0 + s*0.55 + off/1; x < BLOCK.x1; x += s*2){
-        const xx = x + ((row%2) ? 0 : s*0.0);
-        // halftone: full in the core, shrinking near the block edges
-        const ex = Math.min(xx - BLOCK.x0, BLOCK.x1 - xx);
-        const ey = Math.min(y - BLOCK.top, BLOCK.bot - y);
-        const e = Math.min(ex, ey*1.4);
-        const r = 4 + 8.6 * ss(2, 42, e);
-        blockDots.push({ x: xx, y, r, seed: ((row*7 + x)*0.37) % 1 });
+    for (let y = -1660; y < FLOOR_Y + 20; y += rowH, row++){
+      const off = (row & 1) ? colW/2 : 0;
+      for (let x = 880 + off; x < 3820; x += colW){
+        if (!inMountain(x, y)) continue;
+        const e = silDist(x, y);
+        const edgeW = 1 - ss(10, 110, e);                          // 1 at the ridge, 0 deep inside
+        const patch = hash2(Math.floor(x/230), Math.floor(y/230)); // coarse fragmentation
+        const nd = hash2(x*1.73, y*1.31);                          // per-dot dropout
+        const keep = 0.62*edgeW*edgeW + 0.30*patch*patch*(0.3 + 0.7*edgeW) + 0.03;
+        if (nd > keep) continue;
+        const r = (2.1 + 4.4*edgeW + 2.4*nd) * (0.75 + 0.5*hash2(x, y));
+        const alt = (FLOOR_Y - y) / (FLOOR_Y + 1660);              // 0 base .. 1 peak
+        mountainDots.push({ x, y, r, alt, al: 0.34 + 0.34*edgeW,
+                            snow: y < -1150, seed: nd });
       }
     }
   }
   const groundDots = [];
-  for (let x = -140, i = 0; x < 1020; x += LAT*0.72, i++){
-    const fade = ss(-140, 60, x) * ss(1020, 820, x);
-    groundDots.push({ x, y: FLOOR_Y + 4, r: (2.2 + 2.6*fade) * (0.75 + 0.5*((i*0.417)%1)), seed: (i*0.531)%1 });
+  for (let x = -700, i = 0; x < 4200; x += LAT*1.7, i++){
+    if (hash2(i, 3.7) > 0.62) continue;                            // broken, dissolving line
+    const fade = ss(-700, -350, x) * ss(4200, 3900, x);
+    groundDots.push({ x, y: FLOOR_Y + 10, r: (1.6 + 2.2*fade) * (0.6 + 0.6*((i*0.417)%1)), seed: (i*0.531)%1 });
   }
-  const ambient = [];
-  for (let i = 0; i < 34; i++){
-    const sx = (i*0.618)%1, sy = (i*0.397)%1;
-    ambient.push({ x: -60 + sx*1000, y: -80 + sy*680, r: 1.4 + 2.4*((i*0.77)%1), seed: (i*0.13)%1 });
+  const clouds = [];
+  {
+    const spots = [[1180,-1160, 170, 46], [3020,-1300, 200, 54]];
+    for (let ci = 0; ci < spots.length; ci++){
+      const [cx0, cy0, rx, ry] = spots[ci];
+      for (let k = 0; k < 12; k++){
+        const a = (k*0.618)%1 * TAU, rr = Math.sqrt((k*0.37)%1);
+        const x = Math.cos(a)*rx*rr, y = Math.sin(a)*ry*rr;
+        const edge = 1 - Math.hypot(x/rx, y/ry);
+        clouds.push({ ci, ox: x, oy: y, cx: cx0, cy: cy0, r: 2.4 + 6*ss(0.05, 0.6, edge), seed: (k*0.13 + ci*0.31)%1 });
+      }
+    }
   }
 
   /* per-dot assembly scatter (fly-in) */
@@ -287,14 +233,162 @@
     d.sy = d.y + Math.sin(ang)*dist * 0.7;
   }
 
-  /* ---------- camera ---------- */
-  function camera(p){
-    // world rect to fit; zooms out + pans up during the climb
-    const u = ss(P_CLIMB[0], P_CLIMB[1], p);
-    const top    = lerp(-40, -235, u);
-    const bottom = 700;
-    const cx     = lerp(432, 452, u);
-    return { top, bottom, cx };
+  /* ---------- story phases ---------- */
+  const P_ASSEMBLE = [0.00, 0.10];
+  const P_MOUNTAIN = [0.08, 0.26];
+  const P_ASCENT   = [0.27, 0.86];
+  const P_TRIUMPH  = [0.88, 0.97];
+  const P_TEXT     = [0.90, 0.97];
+
+  const STRIDE = 136;
+  const S_C0 = arcAtX(222), S_H0 = arcAtX(660);
+  const S_C1 = arcAtX(2540), S_H1 = arcAtX(2688);   // summit spots
+  const FOOT_LIFT = 36;                              // foot joint height above the surface
+
+  /* the two assist beats: the climber briefly stalls, the helper pulls them up */
+  function assistDip(u){
+    let dip = 0;
+    for (const [c, w] of [[0.46, 0.05], [0.70, 0.05]]){
+      const q = (u - c) / w;
+      if (q > -1 && q < 1) dip -= Math.pow(Math.cos(q*Math.PI/2), 2) * 90;
+    }
+    return dip;
+  }
+  function assistGlow(u){
+    let g = 0;
+    for (const c of [0.46, 0.70]) g = Math.max(g, 1 - Math.min(1, Math.abs(u-c)/0.07));
+    return g;
+  }
+
+  /* procedural climb gait for one figure */
+  function gaitPose(fig, S, t, settle, settleX){
+    const O = OFF[fig], L = LIMB[fig], J = {};
+    // feet: alternating footholds along the path
+    const feet = [];
+    for (let i = 0; i < 2; i++){
+      const offs = i ? STANCE : -STANCE;            // wide paper-doll stance along the slope
+      if (settle > 0.999){
+        const st = sample(arcAtX(settleX + (i ? 52 : -52)));
+        feet.push([st.p[0], st.p[1] - FOOT_LIFT]); continue;
+      }
+      const ph = (S + offs - (i ? 0 : STRIDE*0.5)) / STRIDE;
+      const k = Math.floor(ph), q = ph - k;
+      const base = k*STRIDE - offs*0 + (i ? 0 : STRIDE*0.5);
+      const cur = sample(base + offs), nxt = sample(base + STRIDE + offs);
+      let fp;
+      if (q < 0.6) fp = cur.p.slice();
+      else {
+        const w = smooth((q - 0.6) / 0.4);
+        fp = lerpP(cur.p, nxt.p, w);
+        fp[1] -= Math.sin(w*Math.PI) * 24;          // swing lift
+      }
+      fp[1] -= FOOT_LIFT;
+      if (settle > 0){                              // blend to summit stance
+        const st = sample(arcAtX(settleX + (i ? 52 : -52)));
+        fp = lerpP(fp, [st.p[0], st.p[1] - FOOT_LIFT], settle);
+      }
+      feet.push(fp);
+    }
+    const here = sample(S);
+    const slope = Math.max(0, -here.dir[1]);        // 0 flat .. ~0.9 steep
+    const bob = REDUCED ? 0 : Math.sin(S/STRIDE * Math.PI) * 6 * (1-settle);
+    const midX = (feet[0][0] + feet[1][0]) / 2, midY = (feet[0][1] + feet[1][1]) / 2;
+    const leanShift = slope * 26 * (1-settle);
+    J.pelvis = [midX + leanShift, midY - GAITH[fig] + bob];  // pelvis rides high, legs near-straight
+    const lean = slope * 0.20 * (1-settle) + (REDUCED ? 0 : Math.sin(t*0.6 + fig)*0.012);
+    J.chest = add(J.pelvis, rot(O.chest, lean));
+    J.neck  = add(J.chest,  rot(O.neck,  lean*1.15));
+    J.head  = add(J.neck,   rot(O.head,  lean*1.3));
+    J.shoulderL = add(J.chest, rot(O.shoulderL, lean));
+    J.shoulderR = add(J.chest, rot(O.shoulderR, lean));
+    J.hipL = add(J.pelvis, rot(O.hipL, lean*0.4));
+    J.hipR = add(J.pelvis, rot(O.hipR, lean*0.4));
+    [J.kneeL, J.footL] = ik(J.hipL, feet[0], L.legLup, L.legLlo, -1);
+    [J.kneeR, J.footR] = ik(J.hipR, feet[1], L.legRup, L.legRlo, +1);
+    // default arms: keep the SVG's own arm angles (rotated with the lean) — clean silhouette
+    const R = REST[fig];
+    const dL = sub(R.handL, R.shoulderL), dR = sub(R.handR, R.shoulderR);
+    [J.elbowL, J.handL] = ik(J.shoulderL, add(J.shoulderL, rot(dL, lean)), L.armLup, L.armLlo, -1);
+    [J.elbowR, J.handR] = ik(J.shoulderR, add(J.shoulderR, rot(dR, lean)), L.armRup, L.armRlo, +1);
+    return J;
+  }
+
+  function restPose(fig, t){
+    const S = REST[fig], J = {};
+    const breathe = REDUCED ? 0 : Math.sin(t*0.9 + fig*2.1) * 2.2;
+    for (const k in S) J[k] = S[k].slice();
+    J.pelvis[1] += breathe*0.4; J.chest[1] += breathe*0.5; J.neck[1] += breathe*0.55;
+    J.head[1] += breathe*0.7; J.shoulderL[1] += breathe*0.5; J.shoulderR[1] += breathe*0.5;
+    return J;
+  }
+
+  /* ---------- pose the pair ---------- */
+  function solvePair(p, t){
+    const u = ss(P_ASCENT[0], P_ASCENT[1], p);
+    const tr = ss(P_TRIUMPH[0], P_TRIUMPH[1], p);
+    const blendIn = ss(P_ASCENT[0], P_ASCENT[0] + 0.045, p);
+
+    const ScBase = lerp(S_C0, S_C1, u);
+    const Sc = ScBase + assistDip(u) * (1-u*0.5);      // the climber slips back on each assist…
+    const gap = lerp(S_H0 - S_C0, 460, ss(0, 0.22, u));
+    const Sh = Math.min(S_H1, ScBase + gap);           // …while the helper holds their ground
+    const settleC = ss(0.965, 1, u), settleH = ss(0.93, 1, u);
+
+    let J0 = gaitPose(0, Sc, t, settleC, 2540);
+    let J1 = gaitPose(1, Sh, t, settleH, 2688);
+
+    // blend from the exact SVG rest pose into the gait at ascent start
+    if (blendIn < 1){
+      const R0 = restPose(0, t), R1 = restPose(1, t);
+      for (const k in J0) J0[k] = lerpP(R0[k], J0[k], blendIn);
+      for (const k in J1) J1[k] = lerpP(R1[k], J1[k], blendIn);
+    }
+
+    // ------- the held hands (climber right + helper left) -------
+    const taut = Math.max(assistGlow(u), tr);      // pulls tight on assists + triumph
+    let shared = lerpP(J0.shoulderR, J1.shoulderL, 0.5);
+    shared[1] += lerp(46, 10, taut);               // sag when relaxed, taut when pulling
+    [J0.elbowR, J0.handR] = ik(J0.shoulderR, shared, LIMB[0].armRup, LIMB[0].armRlo, +1);
+    [J1.elbowL, J1.handL] = ik(J1.shoulderL, shared, LIMB[1].armLup, LIMB[1].armLlo, -1);
+    shared = lerpP(J0.handR, J1.handL, 0.5);       // final glow point = actual hands
+
+    // ------- free arms (gait keeps the SVG angles; triumph overrides) -------
+    if (tr > 0){
+      // climber's free arm sweeps straight up
+      const sh = J0.shoulderL;
+      const reach = (LIMB[0].armLup + LIMB[0].armLlo) * 0.985;
+      const restD = sub(REST[0].handL, REST[0].shoulderL);
+      const a0 = Math.atan2(restD[1], restD[0]);
+      const a1 = -Math.PI/2 - 0.06;
+      const a = lerp(a0, a1, smooth(tr));
+      [J0.elbowL, J0.handL] = ik(sh, [sh[0] + Math.cos(a)*reach, sh[1] + Math.sin(a)*reach], LIMB[0].armLup, LIMB[0].armLlo, -1);
+      // helper's outer arm lifts in cheer
+      const sh1 = J1.shoulderR;
+      [J1.elbowR, J1.handR] = ik(sh1, [sh1[0]+150, sh1[1]+40-tr*150], LIMB[1].armRup, LIMB[1].armRlo, +1);
+    }
+    return { J: [J0, J1], shared, taut, u };
+  }
+
+  function boneFrames(J){
+    return BONES.map(bn => {
+      const a = J[bn[0]], b = J[bn[1]];
+      const ab = sub(b, a), Lb = Math.hypot(ab[0], ab[1]) || 1;
+      const u = [ab[0]/Lb, ab[1]/Lb];
+      return { a, u, n: [-u[1], u[0]] };
+    });
+  }
+
+  /* ---------- camera (cx, cy, world height to fit) ---------- */
+  function camera(p, pairMid){
+    const start  = { x: 452, y: 300, f: 860 };
+    const reveal = { x: 1950, y: -430, f: 2900 };
+    const follow = { x: pairMid[0] + 130, y: pairMid[1] - 170, f: 2400 };
+    const finale = { x: 2000, y: -700, f: 3400 };
+    let c = start;
+    const w1 = ss(0.085, 0.25, p);  c = { x: lerp(c.x, reveal.x, w1), y: lerp(c.y, reveal.y, w1), f: lerp(c.f, reveal.f, w1) };
+    const w2 = ss(0.28, 0.40, p);   c = { x: lerp(c.x, follow.x, w2), y: lerp(c.y, follow.y, w2), f: lerp(c.f, follow.f, w2) };
+    const w3 = ss(0.84, 0.96, p);   c = { x: lerp(c.x, finale.x, w3), y: lerp(c.y, finale.y, w3), f: lerp(c.f, finale.f, w3) };
+    return c;
   }
 
   /* ---------- render ---------- */
@@ -310,7 +404,7 @@
   const headline = document.getElementById("headline");
 
   function dot(x, y, r, color, alpha){
-    if (r <= 0.15 || alpha <= 0.01) return;
+    if (r <= 0.14 || alpha <= 0.01) return;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
@@ -321,41 +415,47 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = BG; ctx.fillRect(0, 0, W, Hh);
 
-    const cam = camera(p);
-    const scale = Hh / (cam.bottom - cam.top);
-    const ox = W/2 - cam.cx * scale;
-    const oy = -cam.top * scale;
-    const T = (pt) => [pt[0]*scale + ox, pt[1]*scale + oy];
-
     const t = time/1000;
-    const tw = (seed) => REDUCED ? 1 : 1 + 0.05*Math.sin(t*2.1 + seed*TAU);
-
-    /* ambient field */
-    for (const a of ambient){
-      const [x,y] = T([a.x + (REDUCED?0:Math.sin(t*0.24 + a.seed*9)*8), a.y]);
-      dot(x, y, a.r*scale, GREY, 0.16 + 0.1*Math.sin(t*0.8 + a.seed*TAU));
-    }
+    const solved = solvePair(p, t);
+    const pairMid = lerpP(solved.J[0].pelvis, solved.J[1].pelvis, 0.5);
+    const cam = camera(p, pairMid);
+    const scale = Hh / cam.f;
+    const T = pt => [(pt[0]-cam.x)*scale + W/2, (pt[1]-cam.y)*scale + Hh/2];
+    const tw = seed => REDUCED ? 1 : 1 + 0.05*Math.sin(t*2.1 + seed*TAU);
 
     /* ground */
     const gA = ss(P_ASSEMBLE[0], P_ASSEMBLE[1], p);
     for (const g of groundDots){
       const [x,y] = T([g.x, g.y]);
-      dot(x, y, g.r*scale*tw(g.seed), GREY, 0.5 * gA * ss(0, 0.15, g.seed + 0.05));
+      if (x < -20 || x > W+20) continue;
+      dot(x, y, g.r*scale*tw(g.seed), GREY, 0.5 * gA);
     }
 
-    /* hurdle block: staggered pop, bottom rows first */
-    const bA = ss(P_BLOCK[0], P_BLOCK[1], p);
-    for (const b of blockDots){
-      const rowU = 1 - (b.y - BLOCK.top) / (BLOCK.bot - BLOCK.top);   // 0 bottom .. 1 top
-      const local = ss(rowU*0.55, rowU*0.55 + 0.4, bA);
-      const pop = local < 1 ? 1 + 0.18*Math.sin(local*Math.PI) : 1;
-      const [x,y] = T([b.x, b.y]);
-      dot(x, y, b.r*scale*local*pop*tw(b.seed), GREY, 0.85);
+    /* mountain: sweeps up from the base */
+    const mA = ss(P_MOUNTAIN[0], P_MOUNTAIN[1], p);
+    for (const m of mountainDots){
+      const local = ss(m.alt*0.72, m.alt*0.72 + 0.24, mA);
+      if (local <= 0.01) continue;
+      const [x,y] = T([m.x, m.y + (1-local)*46]);
+      if (x < -20 || x > W+20 || y < -20 || y > Hh+20) continue;
+      const pop = local < 1 ? 1 + 0.16*Math.sin(local*Math.PI) : 1;
+      dot(x, y, m.r*scale*local*pop*tw(m.seed), m.snow ? SNOW : GREY, m.snow ? m.al + 0.18 : m.al);
+    }
+
+    /* clouds */
+    if (mA > 0.6){
+      const cA = ss(0.6, 1, mA) * 0.16;
+      for (const c of clouds){
+        const drift = REDUCED ? 0 : Math.sin(t*0.07 + c.ci*2.2) * 60 + t*4 % 900;
+        const [x,y] = T([c.cx + c.ox + (REDUCED?0:((t*6 + c.ci*300) % 1400) - 700), c.cy + c.oy]);
+        if (x < -30 || x > W+30) continue;
+        dot(x, y, c.r*scale, "#7a8791", cA * (0.7 + 0.3*Math.sin(c.seed*TAU)));
+      }
     }
 
     /* figures */
     const aA = ss(P_ASSEMBLE[0], P_ASSEMBLE[1], p);
-    const frames = [poseFigure(0, p, t), poseFigure(1, p, t)].map(boneFrames);
+    const frames = solved.J.map(boneFrames);
     for (const d of DOTS){
       const F = frames[d.fig];
       let x = 0, y = 0;
@@ -364,7 +464,6 @@
         x += b.w * (f.a[0] + f.u[0]*b.t + f.n[0]*b.n);
         y += b.w * (f.a[1] + f.u[1]*b.t + f.n[1]*b.n);
       }
-      // assembly: fly in from scatter with stagger
       const st = ss(d.seed*0.5, d.seed*0.5 + 0.5, aA);
       if (st < 1){ x = lerp(d.sx, x, smooth(st)); y = lerp(d.sy, y, smooth(st)); }
       const [sx, sy] = T([x, y]);
@@ -372,19 +471,34 @@
       dot(sx, sy, r, BLUE, 0.25 + 0.75*st);
     }
 
-    /* the held hands — a soft spark marking the connection */
+    /* the rope: when the slope stretches them apart, the hand-hold becomes a dotted line */
     {
-      const u = ss(P_CLIMB[0], P_CLIMB[1], p);
-      const sparkA = ss(0.16, 0.3, p) * (0.44 + 0.16*Math.sin(t*2.4));
+      const h0 = solved.J[0].handR, h1 = solved.J[1].handL;
+      const gapLen = Math.hypot(h1[0]-h0[0], h1[1]-h0[1]);
+      if (gapLen > 30 && aA >= 1){
+        const n = Math.ceil(gapLen / 24);
+        const sag = Math.min(26, gapLen * 0.10) * (1 - solved.taut);
+        for (let i = 1; i < n; i++){
+          const q = i / n;
+          const wp = lerpP(h0, h1, q);
+          wp[1] += Math.sin(q*Math.PI) * sag;
+          const [x,y] = T(wp);
+          dot(x, y, Math.max(1.2, 4.6*scale)*tw(q), BLUE, 0.8);
+        }
+      }
+    }
+
+    /* the held hands — glowing connection, flaring on each assist */
+    {
+      const sparkA = ss(0.16, 0.3, p) * (0.4 + 0.16*Math.sin(t*2.4) + solved.taut*0.5);
       if (sparkA > 0.01){
-        const hp = K.hand(u);
-        const [hx, hy] = T(hp);
-        const rr = 15 * scale;
+        const [hx, hy] = T(solved.shared);
+        const rr = Math.max(6, 15 * scale) * (1 + solved.taut*0.5);
         const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, rr*2.4);
-        g.addColorStop(0, "rgba(220,232,255,0.85)");
+        g.addColorStop(0, "rgba(220,232,255,0.9)");
         g.addColorStop(0.4, "rgba(120,150,255,0.35)");
         g.addColorStop(1, "rgba(120,150,255,0)");
-        ctx.globalAlpha = sparkA;
+        ctx.globalAlpha = Math.min(1, sparkA);
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(hx, hy, rr*2.4, 0, TAU); ctx.fill();
       }
@@ -395,22 +509,20 @@
     headline.style.opacity = hA;
     headline.style.filter = `blur(${(1-hA)*8}px)`;
 
-    /* debug overlay */
     if (DEBUG){
-      ctx.globalAlpha = 1;
-      const Js = [poseFigure(0, p, t), poseFigure(1, p, t)];
+      ctx.globalAlpha = 1; ctx.strokeStyle = "#2affc4"; ctx.lineWidth = 1;
+      ctx.beginPath();
+      FACE.forEach((pt, i) => { const [x,y] = T(pt); i ? ctx.lineTo(x,y) : ctx.moveTo(x,y); });
+      ctx.stroke();
       ctx.strokeStyle = "#ff5470"; ctx.lineWidth = 1.4;
-      for (const J of Js){
+      for (const J of solved.J){
         for (const [a,b] of BONES){
           const A = T(J[a]), B = T(J[b]);
           ctx.beginPath(); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.stroke();
         }
       }
-      ctx.strokeStyle = "#2affc4";
-      ctx.strokeRect(...T([BLOCK.x0, BLOCK.top]),
-        (BLOCK.x1-BLOCK.x0)*scale, (BLOCK.bot-BLOCK.top)*scale);
       ctx.fillStyle = "#fff"; ctx.font = "12px monospace";
-      ctx.fillText("p=" + p.toFixed(3), 12, 20);
+      ctx.fillText(`p=${p.toFixed(3)} u=${solved.u.toFixed(3)}`, 12, 20);
     }
     ctx.globalAlpha = 1;
   }
@@ -418,7 +530,7 @@
   /* ---------- scroll + loop ---------- */
   function targetP(){
     if (FORCE_P !== null) return FORCE_P;
-    const max = document.body.scrollHeight - innerHeight;
+    const max = document.documentElement.scrollHeight - innerHeight;
     return max > 0 ? Math.min(1, Math.max(0, scrollY / max)) : 0;
   }
   function loop(time){

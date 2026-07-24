@@ -61,6 +61,9 @@
   <div class="row"><label>Dot size <span id="vSize"></span></label><input type="range" id="cSize" min="0.3" max="1.6" step="0.02"></div>
   <div class="row"><label>Contrast (gamma) <span id="vGamma"></span></label><input type="range" id="cGamma" min="0.8" max="4" step="0.05"></div>
   <div class="row"><label>Threshold <span id="vThr"></span></label><input type="range" id="cThr" min="0" max="0.4" step="0.01"></div>
+  <div class="row"><label>Softness <span id="vSoft"></span></label><input type="range" id="cSoft" min="0.02" max="0.5" step="0.01"></div>
+  <div class="row"><label>Jitter <span id="vJit"></span></label><input type="range" id="cJit" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Size variance <span id="vRnd"></span></label><input type="range" id="cRnd" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Text dot size <span id="vTxt"></span></label><input type="range" id="cTxt" min="1" max="6" step="0.1"></div>
   <button id="copyCfg">⧉ Copy settings</button>
   <div class="hint">H toggles this panel · ?p=0.9 pins scroll</div>
@@ -85,7 +88,10 @@
     cols: 72,          // grid density (dots across the width)
     dotScale: 0.80,    // overall dot size
     gamma: 2.1,        // luminance -> size contrast (higher = sparser highlights)
-    threshold: 0.14,   // luminance below this draws nothing
+    threshold: 0.14,   // luminance where dots start to appear…
+    soften: 0.18,      // …feathered over this range (eased, not a hard cut)
+    jitter: 0.4,       // 0 = perfect grid, 1 = dots wander half a cell
+    sizeRnd: 0.4,      // per-dot size variance
     textDot: 2.6,      // px radius of the letter dots
   };
 
@@ -108,6 +114,7 @@
   const sctx = samp.getContext("2d", { willReadFrequently: true });
   let W = 0, Hh = 0, dpr = 1, COLS = 0, ROWS = 0, CELL = 0;
   let txtAssign = null;                   // cellIndex -> {x, y, line, seed}
+  let RND = null;                         // stable per-cell randomness [jx, jy, size] triplets
   function resize(){
     dpr = Math.min(2, window.devicePixelRatio || 1);
     W = innerWidth; Hh = innerHeight;
@@ -117,6 +124,12 @@
     ROWS = Math.ceil(Hh / CELL);
     samp.width = COLS; samp.height = ROWS;
     txtAssign = null;
+    RND = new Float32Array(COLS*ROWS*3);
+    for (let ci = 0; ci < COLS*ROWS; ci++){
+      const cx = ci % COLS, cy = (ci - cx) / COLS;
+      const h = n => { const s = Math.sin(cx*127.1 + cy*311.7 + n*74.7) * 43758.5453; return s - Math.floor(s); };
+      RND[ci*3] = h(1) - 0.5; RND[ci*3+1] = h(2) - 0.5; RND[ci*3+2] = h(3);
+    }
   }
   addEventListener("resize", resize); resize();
 
@@ -213,8 +226,12 @@
         const R = px[i], G = px[i+1], B = px[i+2];
         const lum = (R*0.299 + G*0.587 + B*0.114) / 255;
 
-        let r = lum < CFG.threshold ? 0 : rMax * Math.pow(lum, CFG.gamma) * CFG.dotScale;
-        let x = (cx + 0.5) * CELL, y = (cy + 0.5) * CELL;
+        // eased threshold: dots feather in across [threshold .. threshold+soften]
+        const mask = ss(CFG.threshold, CFG.threshold + Math.max(0.02, CFG.soften), lum);
+        const sizeVar = 1 + (RND[ci*3+2] - 0.5) * 1.6 * CFG.sizeRnd;
+        let r = rMax * Math.pow(lum, CFG.gamma) * CFG.dotScale * mask * sizeVar;
+        let x = (cx + 0.5 + RND[ci*3]   * CFG.jitter) * CELL,
+            y = (cy + 0.5 + RND[ci*3+1] * CFG.jitter) * CELL;
         let col = `rgb(${R},${G},${B})`, alpha = inA;
 
         const tgt = tx2 > 0 && txtAssign ? txtAssign.get(ci) : undefined;
@@ -262,6 +279,9 @@
   wire("cSize", "vSize", "dotScale", v => Math.round(v*100) + "%");
   wire("cGamma", "vGamma", "gamma", v => (+v).toFixed(2));
   wire("cThr", "vThr", "threshold", v => (+v).toFixed(2));
+  wire("cSoft", "vSoft", "soften", v => (+v).toFixed(2));
+  wire("cJit", "vJit", "jitter", v => Math.round(v*100) + "%");
+  wire("cRnd", "vRnd", "sizeRnd", v => Math.round(v*100) + "%");
   wire("cTxt", "vTxt", "textDot", v => (+v).toFixed(1) + "px");
   document.getElementById("copyCfg").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(JSON.stringify(CFG, null, 2)); } catch(e){}

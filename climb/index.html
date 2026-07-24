@@ -66,6 +66,7 @@
   <div class="row"><label>Size variance <span id="vRnd"></span></label><input type="range" id="cRnd" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Balance L→R <span id="vBal"></span></label><input type="range" id="cBal" min="0" max="0.7" step="0.01"></div>
   <div class="row"><label>Text dot size <span id="vTxt"></span></label><input type="range" id="cTxt" min="1" max="6" step="0.1"></div>
+  <button id="invBtn"></button>
   <button id="copyCfg">⧉ Copy settings</button>
   <div class="hint">H toggles this panel · ?p=0.9 pins scroll</div>
 </div>
@@ -89,12 +90,13 @@
     cols: 74,          // grid density (dots across the width)
     dotScale: 0.64,    // overall dot size
     gamma: 2.4,        // luminance -> size contrast (higher = sparser highlights)
-    threshold: 0.14,   // luminance where dots start to appear…
-    soften: 0.2,       // …feathered over this range (eased, not a hard cut)
+    threshold: 0.42,   // ink level where dots start to appear… (inverted: keeps the sky clean)
+    soften: 0.24,      // …feathered over this range (eased, not a hard cut)
     jitter: 0.42,      // 0 = perfect grid, 1 = dots wander half a cell
     sizeRnd: 0.44,     // per-dot size variance
     balance: 0.32,     // darkens the (bright) left edge to even the frame out
     textDot: 2.6,      // px radius of the letter dots
+    invert: true,      // true: dots are the dark stuff (rocks/people), sky stays black
   };
 
   /* ---------- video ready ---------- */
@@ -176,7 +178,8 @@
     const bright = [];
     for (let ci = 0; ci < COLS*ROWS; ci++){
       const i = ci*4;
-      if ((px[i]*0.299 + px[i+1]*0.587 + px[i+2]*0.114) / 255 > Math.max(0.2, CFG.threshold + 0.04)) bright.push(ci);
+      const l = (px[i]*0.299 + px[i+1]*0.587 + px[i+2]*0.114) / 255;
+      if ((CFG.invert ? 1 - l : l) > Math.max(0.2, CFG.threshold + 0.04)) bright.push(ci);
     }
     txtAssign = new Map();
     const claimed = new Set();
@@ -227,16 +230,21 @@
         const R = px[i], G = px[i+1], B = px[i+2];
         const stag = RND[ci*4+3];
         const lum = (R*0.299 + G*0.587 + B*0.114) / 255;
+        const ink = CFG.invert ? 1 - lum : lum;     // inverted: the dark stuff is the ink
 
         // eased threshold: dots feather in across [threshold .. threshold+soften]
-        const mask = ss(CFG.threshold, CFG.threshold + Math.max(0.02, CFG.soften), lum);
+        const mask = ss(CFG.threshold, CFG.threshold + Math.max(0.02, CFG.soften), ink);
         const sizeVar = 1 + (RND[ci*4+2] - 0.5) * 1.6 * CFG.sizeRnd;
         // left-right balance: gently shrink dots toward the (bright) left edge
         const bal = 1 - CFG.balance * (1 - cx/(COLS-1));
-        let r = rMax * Math.pow(lum, CFG.gamma) * CFG.dotScale * mask * sizeVar * bal;
+        let r = rMax * Math.pow(ink, CFG.gamma) * CFG.dotScale * mask * sizeVar * bal;
         let x = (cx + 0.5 + RND[ci*4]   * CFG.jitter) * CELL,
             y = (cy + 0.5 + RND[ci*4+1] * CFG.jitter) * CELL;
-        let col = `rgb(${R},${G},${B})`, alpha = 1;
+        const sr = CFG.invert ? 170 + 46*ink : R,
+              sg = CFG.invert ? 178 + 44*ink : G,
+              sb = CFG.invert ? 184 + 42*ink : B;
+        let col = `rgb(${Math.round(sr)},${Math.round(sg)},${Math.round(sb)})`;
+        let alpha = 1;
 
         // load: dots appear one by one, eased, in random order
         const born = ss(stag*0.7, stag*0.7 + 0.3, loadT);
@@ -248,7 +256,7 @@
           const e = smooth(ss(tgt.seed*0.4 + tgt.line*0.16, tgt.seed*0.4 + tgt.line*0.16 + 0.44, tx2));
           x = lerp(x, tgt.x, e); y = lerp(y, tgt.y, e);
           r = lerp(Math.max(r, 1.2), CFG.textDot, e);
-          col = `rgb(${Math.round(lerp(R, GREY[0], e))},${Math.round(lerp(G, GREY[1], e))},${Math.round(lerp(B, GREY[2], e))})`;
+          col = `rgb(${Math.round(lerp(sr, GREY[0], e))},${Math.round(lerp(sg, GREY[1], e))},${Math.round(lerp(sb, GREY[2], e))})`;
           alpha = 1;
           if (gone > 0) r *= (1 - ss(tgt.seed*0.5, tgt.seed*0.5 + 0.5, gone));   // removed in the end
         } else if (tx2 > 0){
@@ -293,6 +301,10 @@
   wire("cRnd", "vRnd", "sizeRnd", v => Math.round(v*100) + "%");
   wire("cBal", "vBal", "balance", v => Math.round(v*100) + "%");
   wire("cTxt", "vTxt", "textDot", v => (+v).toFixed(1) + "px");
+  const invBtn = document.getElementById("invBtn");
+  const invLabel = () => { invBtn.textContent = CFG.invert ? "Dots: rocks & people" : "Dots: sky"; };
+  invLabel();
+  invBtn.addEventListener("click", () => { CFG.invert = !CFG.invert; invLabel(); txtAssign = null; });
   document.getElementById("copyCfg").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(JSON.stringify(CFG, null, 2)); } catch(e){}
   });

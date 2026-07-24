@@ -17,11 +17,11 @@
   /* the type sits BEHIND the dot canvas — the people pass in front of it */
   .finale{
     position:fixed; inset:0; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:1.2vh; pointer-events:none; z-index:1;
+    align-items:center; justify-content:center; gap:0; pointer-events:none; z-index:1;
   }
   .fline{
-    font-size:clamp(36px,6.4vw,92px); font-weight:600; letter-spacing:-0.01em;
-    line-height:1.08; color:#C8D1D6; white-space:nowrap; opacity:0;
+    font-size:clamp(56px,11.5vw,160px); font-weight:600; letter-spacing:-0.01em;
+    line-height:1.04; color:#C8D1D6; white-space:nowrap; opacity:0;
   }
 
   /* ---- tuning panel (press H) ---- */
@@ -103,7 +103,7 @@
     jitter: 0.54,      // 0 = perfect grid, 1 = dots wander half a cell
     sizeRnd: 0.78,     // per-dot size variance
     balance: 0.49,     // darkens the (bright) left edge to even the frame out
-    colorAmt: 0.12,    // fraction of dots that take a brand colour (the flashes)
+    colorAmt: 0,       // fraction of dots that take a brand colour (0 = pure minimal grey)
     textDot: 2.6,      // px radius of the letter dots
     invert: true,      // true: dots are the dark stuff (rocks/people), sky stays black
   };

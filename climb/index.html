@@ -65,6 +65,8 @@
   <div class="row"><label>Jitter <span id="vJit"></span></label><input type="range" id="cJit" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Size variance <span id="vRnd"></span></label><input type="range" id="cRnd" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Balance L→R <span id="vBal"></span></label><input type="range" id="cBal" min="0" max="0.7" step="0.01"></div>
+  <div class="row"><label>Sky dot size <span id="vSkyS"></span></label><input type="range" id="cSkyS" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Sky opacity <span id="vSkyA"></span></label><input type="range" id="cSkyA" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Text dot size <span id="vTxt"></span></label><input type="range" id="cTxt" min="1" max="6" step="0.1"></div>
   <button id="invBtn"></button>
   <button id="copyCfg">⧉ Copy settings</button>
@@ -90,8 +92,10 @@
     cols: 74,          // grid density (dots across the width)
     dotScale: 0.64,    // overall dot size
     gamma: 2.4,        // luminance -> size contrast (higher = sparser highlights)
-    threshold: 0.42,   // ink level where dots start to appear… (inverted: keeps the sky clean)
+    threshold: 0.38,   // ink level where subject dots start to appear (max 0.4)
     soften: 0.24,      // …feathered over this range (eased, not a hard cut)
+    skySize: 0.30,     // size of the faint background/sky dots (0 removes them)
+    skyAlpha: 0.35,    // opacity of the background/sky dots (0 removes them)
     jitter: 0.42,      // 0 = perfect grid, 1 = dots wander half a cell
     sizeRnd: 0.44,     // per-dot size variance
     balance: 0.32,     // darkens the (bright) left edge to even the frame out
@@ -232,12 +236,16 @@
         const lum = (R*0.299 + G*0.587 + B*0.114) / 255;
         const ink = CFG.invert ? 1 - lum : lum;     // inverted: the dark stuff is the ink
 
-        // eased threshold: dots feather in across [threshold .. threshold+soften]
+        // eased threshold: subject dots feather in across [threshold .. threshold+soften]
         const mask = ss(CFG.threshold, CFG.threshold + Math.max(0.02, CFG.soften), ink);
         const sizeVar = 1 + (RND[ci*4+2] - 0.5) * 1.6 * CFG.sizeRnd;
         // left-right balance: gently shrink dots toward the (bright) left edge
         const bal = 1 - CFG.balance * (1 - cx/(COLS-1));
-        let r = rMax * Math.pow(ink, CFG.gamma) * CFG.dotScale * mask * sizeVar * bal;
+        // the sky layer: faint dots where the subject isn't (0 size/opacity removes them)
+        const skyR = rMax * 0.5 * CFG.skySize * (0.25 + 0.75*ink) * (1 - mask) * sizeVar;
+        let r = (rMax * Math.pow(ink, CFG.gamma) * CFG.dotScale * mask + skyR) * bal;
+        const baseA = CFG.skyAlpha <= 0 && mask <= 0 ? 0 : lerp(CFG.skyAlpha, 1, mask);
+        if (skyR > 0 && CFG.skyAlpha <= 0 && mask < 0.02) r = 0;
         let x = (cx + 0.5 + RND[ci*4]   * CFG.jitter) * CELL,
             y = (cy + 0.5 + RND[ci*4+1] * CFG.jitter) * CELL;
         const sr = CFG.invert ? 170 + 46*ink : R,
@@ -248,7 +256,7 @@
 
         // load: dots appear one by one, eased, in random order
         const born = ss(stag*0.7, stag*0.7 + 0.3, loadT);
-        r *= born; alpha = born > 0 ? 0.35 + 0.65*born : 0;
+        r *= born; alpha = born > 0 ? baseA * (0.35 + 0.65*born) : 0;
 
         const tgt = tx2 > 0 && txtAssign ? txtAssign.get(ci) : undefined;
         if (tgt){
@@ -300,6 +308,8 @@
   wire("cJit", "vJit", "jitter", v => Math.round(v*100) + "%");
   wire("cRnd", "vRnd", "sizeRnd", v => Math.round(v*100) + "%");
   wire("cBal", "vBal", "balance", v => Math.round(v*100) + "%");
+  wire("cSkyS", "vSkyS", "skySize", v => Math.round(v*100) + "%");
+  wire("cSkyA", "vSkyA", "skyAlpha", v => Math.round(v*100) + "%");
   wire("cTxt", "vTxt", "textDot", v => (+v).toFixed(1) + "px");
   const invBtn = document.getElementById("invBtn");
   const invLabel = () => { invBtn.textContent = CFG.invert ? "Dots: rocks & people" : "Dots: sky"; };

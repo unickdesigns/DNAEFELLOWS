@@ -10,13 +10,14 @@
 <style>
   *{ box-sizing:border-box; margin:0; padding:0; }
   html{ scroll-behavior:auto; }
-  body{ background:#0b0d0e; font-family:"Upton","Oswald",sans-serif; }
-  canvas#gl{ position:fixed; inset:0; width:100vw; height:100vh; display:block; }
+  body{ background:#15191C; font-family:"Upton","Oswald",sans-serif; }
+  canvas#gl{ position:fixed; inset:0; width:100vw; height:100vh; display:block; z-index:2; }
   .scrollspace{ height:800vh; }
 
+  /* the type sits BEHIND the dot canvas — the people pass in front of it */
   .finale{
     position:fixed; inset:0; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:1.2vh; pointer-events:none;
+    align-items:center; justify-content:center; gap:1.2vh; pointer-events:none; z-index:1;
   }
   .fline{
     font-size:clamp(36px,6.4vw,92px); font-weight:600; letter-spacing:-0.01em;
@@ -68,6 +69,7 @@
   <div class="row"><label>Sky dot size <span id="vSkyS"></span></label><input type="range" id="cSkyS" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Sky opacity <span id="vSkyA"></span></label><input type="range" id="cSkyA" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Remove sky <span id="vSkyR"></span></label><input type="range" id="cSkyR" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Colour amount <span id="vColA"></span></label><input type="range" id="cColA" min="0" max="0.5" step="0.01"></div>
   <div class="row"><label>Text dot size <span id="vTxt"></span></label><input type="range" id="cTxt" min="1" max="6" step="0.1"></div>
   <button id="invBtn"></button>
   <button id="copyCfg">⧉ Copy settings</button>
@@ -90,20 +92,23 @@
 
   /* ---------- tunables (press H for the panel) ---------- */
   const CFG = {
-    cols: 74,          // grid density (dots across the width)
-    dotScale: 0.64,    // overall dot size
+    cols: 66,          // grid density (dots across the width)
+    dotScale: 0.5,     // overall dot size
     gamma: 2.4,        // luminance -> size contrast (higher = sparser highlights)
-    threshold: 0.38,   // ink level where subject dots start to appear (max 0.4)
-    soften: 0.24,      // …feathered over this range (eased, not a hard cut)
-    skySize: 0.30,     // size of the faint background/sky dots (0 removes them)
-    skyAlpha: 0.0,    // opacity of the background/sky dots (0 removes them)
-    skyRemove: 1.0,   // suppress blue-ish (sky) pixels regardless of brightness; 1 = sky fully gone
-    jitter: 0.42,      // 0 = perfect grid, 1 = dots wander half a cell
-    sizeRnd: 0.44,     // per-dot size variance
-    balance: 0.32,     // darkens the (bright) left edge to even the frame out
+    threshold: 0.4,    // ink level where subject dots start to appear (max 0.4)
+    soften: 0.5,       // …feathered over this range (eased, not a hard cut)
+    skySize: 0.18,     // size of the faint background/sky dots (0 removes them)
+    skyAlpha: 0,       // opacity of the background/sky dots (0 removes them)
+    skyRemove: 1,      // suppress blue-ish (sky) pixels regardless of brightness; 1 = sky fully gone
+    jitter: 0.54,      // 0 = perfect grid, 1 = dots wander half a cell
+    sizeRnd: 0.78,     // per-dot size variance
+    balance: 0.49,     // darkens the (bright) left edge to even the frame out
+    colorAmt: 0.12,    // fraction of dots that take a brand colour (the flashes)
     textDot: 2.6,      // px radius of the letter dots
     invert: true,      // true: dots are the dark stuff (rocks/people), sky stays black
   };
+  const DOT = [118, 122, 125];                                   // #767A7D
+  const ACCENTS = [[226,105,47], [44,96,245], [90,224,130]];     // E2692F / 2C60F5 / 5AE082
 
   /* ---------- video ready ---------- */
   await new Promise(res => {
@@ -156,12 +161,12 @@
     return sctx.getImageData(0, 0, COLS, ROWS).data;
   }
 
-  /* ---------- the words, drawn from the people ----------
-     sample the finale glyphs, then give each glyph point the nearest bright
-     cell of the frozen last frame — those dots fly out and write the line. */
+  /* ---------- the words, drawn from their own dots ----------
+     sample the finale glyphs; each point gets a fresh dot that scatters in
+     from around the type — the people's dots are left alone. */
   const flines = [...document.querySelectorAll(".fline")];
   document.fonts.ready.then(() => { txtAssign = null; });
-  function buildTextAssign(px){
+  function buildTextAssign(){
     const pts = [];
     const cnv = document.createElement("canvas");
     for (let li = 0; li < flines.length; li++){
@@ -175,33 +180,16 @@
       const step = Math.max(3, parseFloat(cs.fontSize) / 10);
       const data = c2.getImageData(0, 0, w, h).data;
       for (let y = 0; y < h; y += step) for (let x = 0; x < w; x += step){
-        if (data[((y|0)*w + (x|0))*4 + 3] > 120)
-          pts.push({ x: rect.left + x, y: rect.top + y, line: li, seed: ((x*7 + y*13) % 97) / 97 });
+        if (data[((y|0)*w + (x|0))*4 + 3] > 120){
+          const seed = ((x*7 + y*13) % 97) / 97;
+          const ang = seed * TAU * 5.3, dist = 120 + 320 * ((seed*11.7) % 1);
+          pts.push({ x: rect.left + x, y: rect.top + y, line: li, seed,
+                     sx: rect.left + x + Math.cos(ang)*dist,
+                     sy: rect.top + y + Math.sin(ang)*dist*0.6 });
+        }
       }
     }
-    if (!pts.length) return;
-    // bright cells of the current frame = the lit sky around the people
-    const bright = [];
-    for (let ci = 0; ci < COLS*ROWS; ci++){
-      const i = ci*4;
-      const l = (px[i]*0.299 + px[i+1]*0.587 + px[i+2]*0.114) / 255;
-      const ink = (CFG.invert ? 1 - l : l) * (1 - CFG.skyRemove * ss(0.015, 0.10, (px[i+2] - px[i]) / 255));
-      if (ink > Math.max(0.2, CFG.threshold + 0.04)) bright.push(ci);
-    }
-    txtAssign = new Map();
-    const claimed = new Set();
-    for (const pt of pts){
-      let best = -1, bd = 1e18;
-      for (const ci of bright){
-        if (claimed.has(ci)) continue;
-        const bx = (ci % COLS + 0.5)*CELL, by = (Math.floor(ci/COLS) + 0.5)*CELL;
-        const dd = (bx-pt.x)*(bx-pt.x) + (by-pt.y)*(by-pt.y);
-        if (dd < bd){ bd = dd; best = ci; }
-      }
-      if (best < 0) break;
-      claimed.add(best);
-      txtAssign.set(best, pt);
-    }
+    txtAssign = pts;
   }
 
   /* ---------- scrub ---------- */
@@ -219,17 +207,16 @@
   function draw(time){
     const p = pS;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = BG; ctx.fillRect(0, 0, W, Hh);
+    ctx.clearRect(0, 0, W, Hh);               // transparent — the type lives behind this canvas
 
     const loadT = Math.min(1, Math.max(0, (time - 250) / 1900));   // load-time reveal window
     const tx2 = ss(P_TXT[0], P_TXT[1], p);
     const gone = ss(P_GONE[0], P_GONE[1], p);
     const px = sampleFrame();
-    if (tx2 > 0 && !txtAssign) buildTextAssign(px);
+    if (tx2 > 0 && !txtAssign) buildTextAssign();
     if (tx2 <= 0) txtAssign = null;
 
     const rMax = CELL * 0.5;
-    const GREY = [200, 209, 214];
     for (let cy = 0; cy < ROWS; cy++){
       for (let cx = 0; cx < COLS; cx++){
         const ci = cy*COLS + cx;
@@ -247,39 +234,50 @@
         // left-right balance: gently shrink dots toward the (bright) left edge
         const bal = 1 - CFG.balance * (1 - cx/(COLS-1));
         // the sky layer: faint dots where the subject isn't (0 size/opacity removes them)
-        const skyR = rMax * 0.5 * CFG.skySize * (0.25 + 0.75*ink) * (1 - mask) * sizeVar;
-        let r = (rMax * Math.pow(ink, CFG.gamma) * CFG.dotScale * mask + skyR) * bal;
+        const skyR = rMax * 0.5 * CFG.skySize * (0.25 + 0.75*ink) * (1 - mask);
+        let r = (rMax * Math.pow(ink, CFG.gamma) * CFG.dotScale * mask + skyR) * sizeVar * bal;
         const baseA = CFG.skyAlpha <= 0 && mask <= 0 ? 0 : lerp(CFG.skyAlpha, 1, mask);
         if (skyR > 0 && CFG.skyAlpha <= 0 && mask < 0.02) r = 0;
-        let x = (cx + 0.5 + RND[ci*4]   * CFG.jitter) * CELL,
-            y = (cy + 0.5 + RND[ci*4+1] * CFG.jitter) * CELL;
-        const sr = CFG.invert ? 170 + 46*ink : R,
-              sg = CFG.invert ? 178 + 44*ink : G,
-              sb = CFG.invert ? 184 + 42*ink : B;
-        let col = `rgb(${Math.round(sr)},${Math.round(sg)},${Math.round(sb)})`;
-        let alpha = 1;
+        const x = (cx + 0.5 + RND[ci*4]   * CFG.jitter) * CELL,
+              y = (cy + 0.5 + RND[ci*4+1] * CFG.jitter) * CELL;
+
+        // colour: base grey, with a stable subset flashing the brand gradient
+        let col;
+        if (CFG.invert){
+          const cr = (RND[ci*4+2]*7.31) % 1;                 // stable colour lottery
+          col = cr < CFG.colorAmt
+            ? ACCENTS[Math.floor(cr / CFG.colorAmt * 3) % 3]
+            : DOT;
+          col = `rgb(${col[0]},${col[1]},${col[2]})`;
+        } else {
+          col = `rgb(${R},${G},${B})`;
+        }
 
         // load: dots appear one by one, eased, in random order
         const born = ss(stag*0.7, stag*0.7 + 0.3, loadT);
-        r *= born; alpha = born > 0 ? baseA * (0.35 + 0.65*born) : 0;
+        r *= born;
+        const alpha = born > 0 ? baseA * (0.35 + 0.65*born) : 0;
 
-        const tgt = tx2 > 0 && txtAssign ? txtAssign.get(ci) : undefined;
-        if (tgt){
-          // a dot of the scene becomes a point of the words
-          const e = smooth(ss(tgt.seed*0.4 + tgt.line*0.16, tgt.seed*0.4 + tgt.line*0.16 + 0.44, tx2));
-          x = lerp(x, tgt.x, e); y = lerp(y, tgt.y, e);
-          r = lerp(Math.max(r, 1.2), CFG.textDot, e);
-          col = `rgb(${Math.round(lerp(sr, GREY[0], e))},${Math.round(lerp(sg, GREY[1], e))},${Math.round(lerp(sb, GREY[2], e))})`;
-          alpha = 1;
-          if (gone > 0) r *= (1 - ss(tgt.seed*0.5, tgt.seed*0.5 + 0.5, gone));   // removed in the end
-        } else if (tx2 > 0){
-          // unused dots let go one by one, in random order, eased
-          r *= 1 - ss(stag*0.6, stag*0.6 + 0.4, tx2);
-        }
         if (r < 0.3 || alpha <= 0.01) continue;
         ctx.globalAlpha = alpha;
         ctx.fillStyle = col;
         ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+      }
+    }
+
+    /* the words draw themselves from their own dots (over the type, never from the people) */
+    if (tx2 > 0 && txtAssign){
+      ctx.fillStyle = "#C8D1D6";
+      for (const pt of txtAssign){
+        const e = smooth(ss(pt.seed*0.5 + pt.line*0.15, pt.seed*0.5 + pt.line*0.15 + 0.35, tx2));
+        if (e <= 0.01) continue;
+        let r = CFG.textDot * (0.25 + 0.75*e);
+        if (gone > 0) r *= (1 - ss(pt.seed*0.5, pt.seed*0.5 + 0.5, gone));   // removed in the end
+        if (r < 0.25) continue;
+        ctx.globalAlpha = Math.min(1, e*1.4);
+        ctx.beginPath();
+        ctx.arc(lerp(pt.sx, pt.x, e), lerp(pt.sy, pt.y, e), r, 0, TAU);
+        ctx.fill();
       }
     }
     ctx.globalAlpha = 1;
@@ -316,6 +314,7 @@
   wire("cSkyS", "vSkyS", "skySize", v => Math.round(v*100) + "%");
   wire("cSkyA", "vSkyA", "skyAlpha", v => Math.round(v*100) + "%");
   wire("cSkyR", "vSkyR", "skyRemove", v => Math.round(v*100) + "%");
+  wire("cColA", "vColA", "colorAmt", v => Math.round(v*100) + "%");
   wire("cTxt", "vTxt", "textDot", v => (+v).toFixed(1) + "px");
   const invBtn = document.getElementById("invBtn");
   const invLabel = () => { invBtn.textContent = CFG.invert ? "Dots: rocks & people" : "Dots: sky"; };

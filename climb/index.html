@@ -67,6 +67,7 @@
   <div class="row"><label>Balance L→R <span id="vBal"></span></label><input type="range" id="cBal" min="0" max="0.7" step="0.01"></div>
   <div class="row"><label>Sky dot size <span id="vSkyS"></span></label><input type="range" id="cSkyS" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Sky opacity <span id="vSkyA"></span></label><input type="range" id="cSkyA" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Remove sky <span id="vSkyR"></span></label><input type="range" id="cSkyR" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Text dot size <span id="vTxt"></span></label><input type="range" id="cTxt" min="1" max="6" step="0.1"></div>
   <button id="invBtn"></button>
   <button id="copyCfg">⧉ Copy settings</button>
@@ -95,7 +96,8 @@
     threshold: 0.38,   // ink level where subject dots start to appear (max 0.4)
     soften: 0.24,      // …feathered over this range (eased, not a hard cut)
     skySize: 0.30,     // size of the faint background/sky dots (0 removes them)
-    skyAlpha: 0.35,    // opacity of the background/sky dots (0 removes them)
+    skyAlpha: 0.0,    // opacity of the background/sky dots (0 removes them)
+    skyRemove: 1.0,   // suppress blue-ish (sky) pixels regardless of brightness; 1 = sky fully gone
     jitter: 0.42,      // 0 = perfect grid, 1 = dots wander half a cell
     sizeRnd: 0.44,     // per-dot size variance
     balance: 0.32,     // darkens the (bright) left edge to even the frame out
@@ -183,7 +185,8 @@
     for (let ci = 0; ci < COLS*ROWS; ci++){
       const i = ci*4;
       const l = (px[i]*0.299 + px[i+1]*0.587 + px[i+2]*0.114) / 255;
-      if ((CFG.invert ? 1 - l : l) > Math.max(0.2, CFG.threshold + 0.04)) bright.push(ci);
+      const ink = (CFG.invert ? 1 - l : l) * (1 - CFG.skyRemove * ss(0.015, 0.10, (px[i+2] - px[i]) / 255));
+      if (ink > Math.max(0.2, CFG.threshold + 0.04)) bright.push(ci);
     }
     txtAssign = new Map();
     const claimed = new Set();
@@ -234,7 +237,9 @@
         const R = px[i], G = px[i+1], B = px[i+2];
         const stag = RND[ci*4+3];
         const lum = (R*0.299 + G*0.587 + B*0.114) / 255;
-        const ink = CFG.invert ? 1 - lum : lum;     // inverted: the dark stuff is the ink
+        let ink = CFG.invert ? 1 - lum : lum;       // inverted: the dark stuff is the ink
+        // sky is blue-dominant even when dim — suppress it by colour, not brightness
+        ink *= 1 - CFG.skyRemove * ss(0.015, 0.10, (B - R) / 255);
 
         // eased threshold: subject dots feather in across [threshold .. threshold+soften]
         const mask = ss(CFG.threshold, CFG.threshold + Math.max(0.02, CFG.soften), ink);
@@ -310,6 +315,7 @@
   wire("cBal", "vBal", "balance", v => Math.round(v*100) + "%");
   wire("cSkyS", "vSkyS", "skySize", v => Math.round(v*100) + "%");
   wire("cSkyA", "vSkyA", "skyAlpha", v => Math.round(v*100) + "%");
+  wire("cSkyR", "vSkyR", "skyRemove", v => Math.round(v*100) + "%");
   wire("cTxt", "vTxt", "textDot", v => (+v).toFixed(1) + "px");
   const invBtn = document.getElementById("invBtn");
   const invLabel = () => { invBtn.textContent = CFG.invert ? "Dots: rocks & people" : "Dots: sky"; };

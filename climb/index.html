@@ -64,6 +64,7 @@
   <div class="row"><label>Softness <span id="vSoft"></span></label><input type="range" id="cSoft" min="0.02" max="0.5" step="0.01"></div>
   <div class="row"><label>Jitter <span id="vJit"></span></label><input type="range" id="cJit" min="0" max="1" step="0.02"></div>
   <div class="row"><label>Size variance <span id="vRnd"></span></label><input type="range" id="cRnd" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Balance L→R <span id="vBal"></span></label><input type="range" id="cBal" min="0" max="0.7" step="0.01"></div>
   <div class="row"><label>Text dot size <span id="vTxt"></span></label><input type="range" id="cTxt" min="1" max="6" step="0.1"></div>
   <button id="copyCfg">⧉ Copy settings</button>
   <div class="hint">H toggles this panel · ?p=0.9 pins scroll</div>
@@ -85,13 +86,14 @@
 
   /* ---------- tunables (press H for the panel) ---------- */
   const CFG = {
-    cols: 72,          // grid density (dots across the width)
-    dotScale: 0.80,    // overall dot size
-    gamma: 2.1,        // luminance -> size contrast (higher = sparser highlights)
+    cols: 74,          // grid density (dots across the width)
+    dotScale: 0.64,    // overall dot size
+    gamma: 2.4,        // luminance -> size contrast (higher = sparser highlights)
     threshold: 0.14,   // luminance where dots start to appear…
-    soften: 0.18,      // …feathered over this range (eased, not a hard cut)
-    jitter: 0.4,       // 0 = perfect grid, 1 = dots wander half a cell
-    sizeRnd: 0.4,      // per-dot size variance
+    soften: 0.2,       // …feathered over this range (eased, not a hard cut)
+    jitter: 0.42,      // 0 = perfect grid, 1 = dots wander half a cell
+    sizeRnd: 0.44,     // per-dot size variance
+    balance: 0.32,     // darkens the (bright) left edge to even the frame out
     textDot: 2.6,      // px radius of the letter dots
   };
 
@@ -103,7 +105,6 @@
   const VDUR = video.duration;
 
   /* ---------- story ---------- */
-  const P_IN    = [0.00, 0.05];
   const P_SCRUB = [0.00, 0.72];          // the film, scrubbed by scroll
   const P_TXT   = [0.74, 0.88];          // the people's dots fly out and draw the words
   const P_FOCUS = [0.85, 0.95];          // crisp type resolves as the dots settle
@@ -124,11 +125,11 @@
     ROWS = Math.ceil(Hh / CELL);
     samp.width = COLS; samp.height = ROWS;
     txtAssign = null;
-    RND = new Float32Array(COLS*ROWS*3);
+    RND = new Float32Array(COLS*ROWS*4);        // jitter-x, jitter-y, size, stagger
     for (let ci = 0; ci < COLS*ROWS; ci++){
       const cx = ci % COLS, cy = (ci - cx) / COLS;
       const h = n => { const s = Math.sin(cx*127.1 + cy*311.7 + n*74.7) * 43758.5453; return s - Math.floor(s); };
-      RND[ci*3] = h(1) - 0.5; RND[ci*3+1] = h(2) - 0.5; RND[ci*3+2] = h(3);
+      RND[ci*4] = h(1) - 0.5; RND[ci*4+1] = h(2) - 0.5; RND[ci*4+2] = h(3); RND[ci*4+3] = h(4);
     }
   }
   addEventListener("resize", resize); resize();
@@ -210,7 +211,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = BG; ctx.fillRect(0, 0, W, Hh);
 
-    const inA = Math.max(ss(P_IN[0], P_IN[1], p), Math.min(1, Math.max(0, (time - 300) / 1300)));
+    const loadT = Math.min(1, Math.max(0, (time - 250) / 1900));   // load-time reveal window
     const tx2 = ss(P_TXT[0], P_TXT[1], p);
     const gone = ss(P_GONE[0], P_GONE[1], p);
     const px = sampleFrame();
@@ -224,15 +225,22 @@
         const ci = cy*COLS + cx;
         const i = ci * 4;
         const R = px[i], G = px[i+1], B = px[i+2];
+        const stag = RND[ci*4+3];
         const lum = (R*0.299 + G*0.587 + B*0.114) / 255;
 
         // eased threshold: dots feather in across [threshold .. threshold+soften]
         const mask = ss(CFG.threshold, CFG.threshold + Math.max(0.02, CFG.soften), lum);
-        const sizeVar = 1 + (RND[ci*3+2] - 0.5) * 1.6 * CFG.sizeRnd;
-        let r = rMax * Math.pow(lum, CFG.gamma) * CFG.dotScale * mask * sizeVar;
-        let x = (cx + 0.5 + RND[ci*3]   * CFG.jitter) * CELL,
-            y = (cy + 0.5 + RND[ci*3+1] * CFG.jitter) * CELL;
-        let col = `rgb(${R},${G},${B})`, alpha = inA;
+        const sizeVar = 1 + (RND[ci*4+2] - 0.5) * 1.6 * CFG.sizeRnd;
+        // left-right balance: gently shrink dots toward the (bright) left edge
+        const bal = 1 - CFG.balance * (1 - cx/(COLS-1));
+        let r = rMax * Math.pow(lum, CFG.gamma) * CFG.dotScale * mask * sizeVar * bal;
+        let x = (cx + 0.5 + RND[ci*4]   * CFG.jitter) * CELL,
+            y = (cy + 0.5 + RND[ci*4+1] * CFG.jitter) * CELL;
+        let col = `rgb(${R},${G},${B})`, alpha = 1;
+
+        // load: dots appear one by one, eased, in random order
+        const born = ss(stag*0.7, stag*0.7 + 0.3, loadT);
+        r *= born; alpha = born > 0 ? 0.35 + 0.65*born : 0;
 
         const tgt = tx2 > 0 && txtAssign ? txtAssign.get(ci) : undefined;
         if (tgt){
@@ -244,7 +252,8 @@
           alpha = 1;
           if (gone > 0) r *= (1 - ss(tgt.seed*0.5, tgt.seed*0.5 + 0.5, gone));   // removed in the end
         } else if (tx2 > 0){
-          r *= Math.max(0, 1 - tx2*1.5);                // the rest of the scene dissolves
+          // unused dots let go one by one, in random order, eased
+          r *= 1 - ss(stag*0.6, stag*0.6 + 0.4, tx2);
         }
         if (r < 0.3 || alpha <= 0.01) continue;
         ctx.globalAlpha = alpha;
@@ -282,6 +291,7 @@
   wire("cSoft", "vSoft", "soften", v => (+v).toFixed(2));
   wire("cJit", "vJit", "jitter", v => Math.round(v*100) + "%");
   wire("cRnd", "vRnd", "sizeRnd", v => Math.round(v*100) + "%");
+  wire("cBal", "vBal", "balance", v => Math.round(v*100) + "%");
   wire("cTxt", "vTxt", "textDot", v => (+v).toFixed(1) + "px");
   document.getElementById("copyCfg").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(JSON.stringify(CFG, null, 2)); } catch(e){}

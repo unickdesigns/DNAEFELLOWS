@@ -88,8 +88,7 @@
     { yr:"’04", x:0.00, name:"Infrastructure",                      color:"#E2692F" },
     { yr:"’06", x:0.24, name:"Defensive Cybersecurity",             color:"#2C60F5" },
     { yr:"’18", x:0.45, name:"DevOps, Cloud & Platform Eng",        color:"#5AE082" },
-    { yr:"’25", x:0.67, name:"Agentic Engineering & AI/ML Platforms", color:"#A16FFF", hi:true,
-      pillars:["Agentic Engineering", "AI/ML Platforms"] },
+    { yr:"’25", x:0.67, name:"Agentic Engineering & AI/ML Platforms", color:"#A16FFF", hi:true },
   ];
 
   const graph = document.getElementById("graph");
@@ -98,7 +97,7 @@
 
   /* ---------- build ---------- */
   let W = 0, svg, clipRect, labels = [], years = [], H = 0;
-  const LANE = 34, RISE = 64, TOP_PAD = 40, BOTTOM_PAD = 52;
+  const LANE = HOME ? 42 : 68, RISE = HOME ? 100 : 150, TOP_PAD = 44, BOTTOM_PAD = 56;
 
   function build(){
     W = graph.clientWidth;
@@ -124,32 +123,12 @@
       let d;
       if (i === 0) d = `M ${x0} ${yLane} H ${W}`;
       else {
-        // start on the lane below, rise with a smooth S-curve into this lane
+        // rises out of the lane below with one smooth, seamless S-curve
         const yFrom = yLane + LANE;
-        d = `M ${x0} ${yFrom} C ${x0 + RISE*0.55} ${yFrom}, ${x0 + RISE*0.45} ${yLane}, ${x0 + RISE} ${yLane} H ${W}`;
+        d = `M ${x0} ${yFrom} C ${x0 + RISE*0.5} ${yFrom}, ${x0 + RISE*0.5} ${yLane}, ${x0 + RISE} ${yLane} H ${W}`;
       }
-      // the 2025 track fans into two pillars; each strand runs into its own tag
-      if (t.pillars){
-        const NARROW = W < 760;                              // phones: no end-tags, tighter fan
-        const TAG_W = NARROW ? 0 : 150;                      // room reserved for the end-tags
-        const xEnd = W - TAG_W;
-        const xf = x0 + RISE + (xEnd - x0 - RISE) * 0.45;   // fork point
-        const spread = NARROW ? 7 : 9;
-        d = `M ${x0} ${yLane + LANE} C ${x0 + RISE*0.55} ${yLane + LANE}, ${x0 + RISE*0.45} ${yLane}, ${x0 + RISE} ${yLane} H ${xf}`;
-        const fork = (dy) => `M ${xf} ${yLane} C ${xf + 70} ${yLane}, ${xf + 60} ${yLane + dy}, ${xf + 130} ${yLane + dy} H ${xEnd}`;
-        g.append(
-          el("path", { d, fill:"none", stroke:t.color, "stroke-width":sw, "stroke-linecap":"round", class:"glow" }),
-          el("path", { d:fork(-spread), fill:"none", stroke:t.color, "stroke-width":3, "stroke-linecap":"round", class:"glow" }),
-          el("path", { d:fork(+spread), fill:"none", stroke:t.color, "stroke-width":3, "stroke-linecap":"round", class:"glow" }),
-        );
-        if (!NARROW) t.pillars.forEach((txt, k) => {
-          const dy = k ? +spread : -spread;
-          const tx = el("text", { x:xEnd + 10, y:yLane + dy, fill:t.color, "dominant-baseline":"middle", class:"lbl end" });
-          tx.textContent = txt; tx.dataset.at = xEnd; svg.appendChild(tx); labels.push(tx);
-        });
-      } else {
-        g.appendChild(el("path", { d, fill:"none", stroke:t.color, "stroke-width":sw, "stroke-linecap":"round" }));
-      }
+      g.appendChild(el("path", { d, fill:"none", stroke:t.color, "stroke-width":sw,
+        "stroke-linecap":"round", ...(t.hi ? { class:"glow" } : {}) }));
 
       // track label: starts at the inception year (like the design), above its lane
       const lbl = el("text", { x:x0 + 2, y:yLane - (t.hi ? 22 : 10), fill:t.color, class:"lbl" + (t.hi ? " hi" : "") });

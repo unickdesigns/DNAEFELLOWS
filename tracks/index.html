@@ -167,32 +167,27 @@
     });
 
     graph.appendChild(svg);
-    // labels that would overflow the right edge at the wide shot hug it instead
-    for (const t of texts){
-      const wpx = Math.max(t.el.getComputedTextLength(), t.el.getBBox().width) + 6;
-      t.wpx = wpx;
-      if (t.ax + wpx > W){ t.ax = W; t.end = true; t.el.setAttribute("text-anchor", "end"); }
-    }
-    // legend layout: push columns apart; if the row can never fit, wrap to a list
-    const needed = texts.filter((t,k) => k%2===0).reduce((a,t) => a + t.wpx, 0) + 26*3;
+    for (const t of texts)
+      t.wpx = Math.max(t.el.getComputedTextLength(), t.el.getBBox().width) + 6;
+    // legend layout, two passes: make room right-to-left, resolve overlaps left-to-right.
+    // if the row can never fit, wrap to a vertical list instead.
+    const names = texts.filter((t,k) => k % 2 === 0);
+    const needed = names.reduce((a,t) => a + t.wpx, 0) + 26*3;
+    const base2 = TOP_PAD + LANE*(TRACKS.length-1);
     if (needed > W){
-      const base2 = TOP_PAD + LANE*(TRACKS.length-1);
-      for (let i = 0; i < TRACKS.length; i++){
-        const name = texts[i*2], yr = texts[i*2+1];
-        name.end = false; name.el.setAttribute("text-anchor", "start");
-        yr.ax = 0;        yr.ay = base2 + 36 + i*24;
-        name.ax = 52;     name.ay = base2 + 36 + i*24;
-      }
+      TRACKS.forEach((t, i) => {
+        texts[i*2].ax = 52;  texts[i*2].ay = base2 + 36 + i*24;
+        texts[i*2+1].ax = 0; texts[i*2+1].ay = base2 + 36 + i*24;
+      });
     } else {
-      let prevEnd = -1e9;
-      for (let i = 0; i < TRACKS.length; i++){
-        const name = texts[i*2], yr = texts[i*2+1];
-        if (!name.end){
-          const ax = Math.max(name.ax, prevEnd + 26);
-          name.ax = ax; yr.ax = ax;
-          prevEnd = ax + name.wpx;
-        } else prevEnd = W;
-      }
+      const n = names.length;
+      names[n-1].ax = Math.min(names[n-1].ax, W - names[n-1].wpx);
+      for (let i = n-2; i >= 0; i--)
+        names[i].ax = Math.min(names[i].ax, names[i+1].ax - 26 - names[i].wpx);
+      names[0].ax = Math.max(0, names[0].ax);
+      for (let i = 1; i < n; i++)
+        names[i].ax = Math.max(names[i].ax, names[i-1].ax + names[i-1].wpx + 26);
+      TRACKS.forEach((t, i) => { texts[i*2+1].ax = texts[i*2].ax; });
     }
     apply(cur);
   }
@@ -258,11 +253,8 @@
     const camBot = (innerHeight - r.top - anchorY)/z + cy;    // world y at the viewport bottom
     texts.forEach((t, k) => {
       let ax = t.ax;
-      if (k % 2 === 0){                                       // names slide; years stay on their moment
-        ax = t.end
-          ? lerp(Math.max(Math.min(t.ax, camRight - 28/z), camLeft + (t.wpx + 28)/z), t.ax, wide)
-          : lerp(Math.max(t.ax, camLeft + 28/z), t.ax, wide);
-      }
+      if (k % 2 === 0)                                        // names slide; years stay on their moment
+        ax = lerp(Math.min(Math.max(t.ax, camLeft + 28/z), camRight - (t.wpx + 28)/z), t.ax, wide);
       const ay = lerp(camBot - (k % 2 === 0 ? 28 : 50)/z, t.ay, wide);
       t.g.setAttribute("transform", `translate(${ax} ${ay}) scale(${inv})`);
     });

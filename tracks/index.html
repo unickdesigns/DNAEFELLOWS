@@ -10,7 +10,6 @@
 <style>
   :root{
     --bg:#15191C; --ink:#C8D1D6; --rule:rgba(200,209,214,.10);
-    --c04:#E2692F; --c06:#2C60F5; --c18:#5AE082; --c25:#A16FFF;
     --sans:"Upton","Oswald",sans-serif;
     --mono:"Proto Mono","JetBrains Mono",ui-monospace,monospace;
   }
@@ -18,31 +17,30 @@
   html{ scroll-behavior:auto; }
   body{ background:var(--bg); color:var(--ink); font-family:var(--sans); -webkit-font-smoothing:antialiased; }
 
-  /* ---- page scaffolding (placeholder sections around the element) ---- */
   .filler{ height:60vh; display:flex; align-items:flex-end; padding:0 clamp(24px,5vw,84px) 48px;
     font-family:var(--mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:rgba(200,209,214,.35); }
 
-  /* ---- the element ---- */
-  .tracks-scroll{ position:relative; height:320vh; }            /* scroll runway (full mode) */
-  .tracks-sticky{ position:sticky; top:0; height:100vh; display:flex; align-items:center; }
+  .tracks-scroll{ position:relative; height:420vh; }
+  .tracks-sticky{ position:sticky; top:0; height:100vh; display:flex; align-items:center; overflow:hidden; }
   .tracks{ width:min(1273px, 100% - 2*clamp(24px,5vw,84px)); margin:0 auto; }
-  .tracks .rule{ height:1px; background:var(--rule); margin-bottom:48px; }
-  .tracks header{ display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:start; margin-bottom:56px; }
+
+  /* header floats over the scene and only resolves at the wide shot */
+  .tracks header{ display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:start;
+    margin-bottom:56px; opacity:0; }
+  .tracks .rule{ height:1px; background:var(--rule); margin-bottom:48px; opacity:0; }
   .tracks h2{ font-size:48px; font-weight:600; line-height:.9; letter-spacing:-0.01em; max-width:260px; }
   .tracks .lede{ font-size:32px; font-weight:600; line-height:1.1; max-width:360px; padding-left:clamp(0px,4vw,60px); }
 
   .graph{ position:relative; width:100%; }
   .graph svg{ display:block; width:100%; height:auto; overflow:visible; }
   .graph text{ font-family:var(--mono); font-size:14px; letter-spacing:.04em; text-transform:uppercase; }
-  .graph .lbl, .graph .yr{ opacity:0; transition:opacity .35s ease, transform .6s cubic-bezier(.2,.7,.2,1); transform:translateY(6px); }
+  .graph .lbl, .graph .yr{ opacity:0; transition:opacity .5s ease, transform .7s cubic-bezier(.2,.7,.2,1); transform:translateY(6px); }
   .graph .lbl.on, .graph .yr.on{ opacity:1; transform:translateY(0); }
   .graph .lbl.hi{ font-size:16px; font-weight:500; letter-spacing:.05em; }
-  .graph .end{ font-size:11px; letter-spacing:.1em; }
   .graph .glow{ filter:drop-shadow(0 0 6px rgba(161,111,255,.55)); }
 
-  /* condensed, non-interactive (Home) */
   body.home .tracks-scroll{ height:auto; }
-  body.home .tracks-sticky{ position:static; height:auto; padding:64px 0; }
+  body.home .tracks-sticky{ position:static; height:auto; padding:64px 0; overflow:visible; }
   body.home .tracks header{ margin-bottom:32px; }
   body.home .tracks h2{ font-size:36px; }
   body.home .tracks .lede{ font-size:22px; }
@@ -64,8 +62,8 @@
 <section class="tracks-scroll" id="scrollzone">
   <div class="tracks-sticky">
     <div class="tracks">
-      <div class="rule"></div>
-      <header>
+      <div class="rule" id="rule"></div>
+      <header id="hdr">
         <h2>Twenty-two years, stacked</h2>
         <p class="lede">Four tracks, opened along the way. Constantly evolving.</p>
       </header>
@@ -79,88 +77,89 @@
 <script>
 (() => {
   const qs = new URLSearchParams(location.search);
-  const HOME = qs.has("home");                    // ?home → condensed, non-interactive
+  const HOME = qs.has("home");
   if (HOME) document.body.classList.add("home");
   const FORCE = qs.has("p") ? parseFloat(qs.get("p")) : null;
 
-  /* ---------- data ---------- */
-  // linear time axis: 2004 .. 2028 (a little runway past today)
+  /* ---------- data: linear time axis 2004..2028 ---------- */
   const T0 = 2004, T1 = 2028;
   const tx = y => (y - T0) / (T1 - T0);
   const TRACKS = [
-    { yr:"’04", x:tx(2004), name:"Infrastructure",                      color:"#E2692F" },
-    { yr:"’06", x:tx(2006), name:"Defensive Cybersecurity",             color:"#2C60F5" },
-    { yr:"’18", x:tx(2018), name:"DevOps, Cloud & Platform Eng",        color:"#5AE082" },
+    { yr:"’04", x:tx(2004), name:"Infrastructure",                        color:"#E2692F" },
+    { yr:"’06", x:tx(2006), name:"Defensive Cybersecurity",               color:"#2C60F5" },
+    { yr:"’18", x:tx(2018), name:"DevOps, Cloud & Platform Eng",          color:"#5AE082" },
     { yr:"’25", x:tx(2025), name:"Agentic Engineering & AI/ML Platforms", color:"#A16FFF", hi:true },
   ];
 
   const graph = document.getElementById("graph");
+  const hdr = document.getElementById("hdr");
+  const rule = document.getElementById("rule");
   const NS = "http://www.w3.org/2000/svg";
   const el = (n, a={}) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const lerp = (a,b,t) => a + (b-a)*t;
+  const smooth = t => t*t*(3-2*t);
+  const ss = (a,b,x) => { const t = Math.min(1, Math.max(0, (x-a)/(b-a))); return smooth(t); };
 
-  /* ---------- build ---------- */
-  let W = 0, svg, clipRect, labels = [], years = [], H = 0;
+  /* ---------- build the scene (always fully present — the camera does the storytelling) ---------- */
+  let W = 0, H = 0, svg, cam, labels = [], years = [];
   const LANE = HOME ? 42 : 68, RISE = HOME ? 100 : 150, TOP_PAD = 44, BOTTOM_PAD = 56;
+  let joins = [];                              // world-space anchor of each track's beginning
 
   function build(){
     W = graph.clientWidth;
     H = TOP_PAD + LANE * (TRACKS.length - 1) + BOTTOM_PAD;
     graph.innerHTML = "";
     svg = el("svg", { viewBox:`0 0 ${W} ${H}`, width:W, height:H });
+    const defs = el("defs"); svg.appendChild(defs);
+    cam = el("g");
+    svg.appendChild(cam);
 
-    // clip: the time cursor sweeps left -> right revealing everything
-    const defs = el("defs");
-    const clip = el("clipPath", { id:"sweep" });
-    clipRect = el("rect", { x:-4, y:-40, width:0, height:H+80 });
-    clip.appendChild(clipRect); defs.appendChild(clip); svg.appendChild(defs);
-    const g = el("g", { "clip-path":"url(#sweep)" });
-    svg.appendChild(g);
-
-    const base = TOP_PAD + LANE * (TRACKS.length - 1);     // bottom lane y
-    labels = []; years = [];
+    const base = TOP_PAD + LANE * (TRACKS.length - 1);
+    labels = []; years = []; joins = [];
 
     TRACKS.forEach((t, i) => {
       const x0 = t.x * W;
       const yLane = base - LANE * i;
       const sw = t.hi ? 4.5 : 2.5;
       const rise = Math.min(RISE, (W - x0) * 0.5);
+      joins.push({ x: x0 + rise * 0.5, y: i === 0 ? yLane : yLane + LANE * 0.5 });
       let d;
       if (i === 0) d = `M ${x0} ${yLane} H ${W}`;
       else {
-        // rises out of the lane below with one smooth, seamless S-curve
         const yFrom = yLane + LANE;
         d = `M ${x0} ${yFrom} C ${x0 + rise*0.5} ${yFrom}, ${x0 + rise*0.5} ${yLane}, ${x0 + rise} ${yLane} H ${W}`;
       }
-      // the joint gradients out of the parent track's colour, so it reads seamless
       let stroke = t.color;
       if (i > 0){
         const gid = `grad${i}`;
-        const lg = el("linearGradient", { id:gid, gradientUnits:"userSpaceOnUse",
-          x1:x0, y1:0, x2:x0 + rise*1.7, y2:0 });
-        const stop = (off, c) => { const st = el("stop", { offset:off, "stop-color":c }); lg.appendChild(st); };
-        stop("0", TRACKS[i-1].color);
-        stop("1", t.color);
+        const lg = el("linearGradient", { id:gid, gradientUnits:"userSpaceOnUse", x1:x0, y1:0, x2:x0 + rise*1.7, y2:0 });
+        lg.append(el("stop", { offset:"0", "stop-color":TRACKS[i-1].color }),
+                  el("stop", { offset:"1", "stop-color":t.color }));
         defs.appendChild(lg);
         stroke = `url(#${gid})`;
       }
-      g.appendChild(el("path", { d, fill:"none", stroke, "stroke-width":sw,
+      cam.appendChild(el("path", { d, fill:"none", stroke, "stroke-width":sw,
         "stroke-linecap":"round", ...(t.hi ? { class:"glow" } : {}) }));
+      // fade-out tail past the right edge — the line never visibly "ends" while zoomed
+      const fid = `fade${i}`;
+      const fg = el("linearGradient", { id:fid, gradientUnits:"userSpaceOnUse", x1:W, y1:0, x2:W*1.28, y2:0 });
+      fg.append(el("stop", { offset:"0", "stop-color":t.color, "stop-opacity":"1" }),
+                el("stop", { offset:"1", "stop-color":t.color, "stop-opacity":"0" }));
+      defs.appendChild(fg);
+      cam.appendChild(el("path", { d:`M ${W} ${yLane} H ${W*1.28}`, fill:"none",
+        stroke:`url(#${fid})`, "stroke-width":sw, ...(t.hi ? { class:"glow" } : {}) }));
 
-      // track label: starts at the inception year (like the design), above its lane
       const lbl = el("text", { x:x0 + 2, y:yLane - (t.hi ? 22 : 10), fill:t.color, class:"lbl" + (t.hi ? " hi" : "") });
-      lbl.textContent = t.name; lbl.dataset.at = x0 + 10;
-      svg.appendChild(lbl); labels.push(lbl);
-      lbl.dataset.guard = "1";
+      lbl.textContent = t.name; lbl.dataset.stage = i;
+      cam.appendChild(lbl); labels.push(lbl);
 
-      // year marker under the baseline
       const yr = el("text", { x:x0, y:base + 30, fill:t.color, class:"yr" });
-      yr.textContent = t.yr; yr.dataset.at = x0;
-      svg.appendChild(yr); years.push(yr);
+      yr.textContent = t.yr; yr.dataset.stage = i;
+      cam.appendChild(yr); years.push(yr);
     });
     graph.appendChild(svg);
-    // overflow guard — measured after attach (detached SVG text measures as 0)
+    // overflow guard — measured after attach
     for (const lbl of labels){
-      if (!lbl.dataset.guard) continue;
       const x = parseFloat(lbl.getAttribute("x"));
       const len = Math.max(lbl.getComputedTextLength(), lbl.getBBox().width) + 6;
       if (x + len > W){ lbl.setAttribute("x", W); lbl.setAttribute("text-anchor", "end"); }
@@ -168,42 +167,61 @@
     apply(cur);
   }
 
-  /* ---------- drive ---------- */
-  let cur = FORCE ?? 0, target = 0;
-  function apply(p){
-    const x = p * W;
-    clipRect.setAttribute("width", Math.max(0, x + 4));
-    for (const t of [...labels, ...years]) t.classList.toggle("on", x >= parseFloat(t.dataset.at));
+  /* ---------- the camera ----------
+     scroll doesn't draw the lines — it rides them. start deep inside the '04
+     track, glide right through time, meet each join, then pull out wide. */
+  function keyframes(){
+    const j = joins;
+    return [
+      { p:0.00, x:j[0].x + W*0.02, y:j[0].y, z:5.0 },      // inside the orange line
+      { p:0.14, x:j[1].x,          y:j[1].y, z:4.2 },      // '06: cyber rises
+      { p:0.34, x:lerp(j[1].x, j[2].x, 0.55), y:j[1].y - LANE*0.4, z:3.2 },
+      { p:0.50, x:j[2].x,          y:j[2].y, z:2.7 },      // '18: devops rises
+      { p:0.68, x:lerp(j[2].x, j[3].x, 0.6), y:j[2].y - LANE*0.5, z:2.2 },
+      { p:0.80, x:j[3].x,          y:j[3].y, z:1.9 },      // '25: the highlighted track
+      { p:1.00, x:W/2,             y:H/2,    z:1.0 },      // the whole story
+    ];
   }
+  // label/year i appears when the camera reaches its join
+  const STAGE_AT = [0.02, 0.12, 0.48, 0.78];
+
+  function apply(p){
+    if (!cam) return;
+    const kf = keyframes();
+    let a = kf[0], b = kf[kf.length-1];
+    for (let i = 0; i < kf.length-1; i++)
+      if (p >= kf[i].p && p <= kf[i+1].p){ a = kf[i]; b = kf[i+1]; break; }
+    const t = a === b ? 1 : smooth((p - a.p) / (b.p - a.p));
+    const cx = lerp(a.x, b.x, t), cy = lerp(a.y, b.y, t);
+    const z = Math.exp(lerp(Math.log(a.z), Math.log(b.z), t));   // zoom eases in log space
+    // while immersed, the camera centre is the VIEWPORT centre; it hands back
+    // to the layout position as the wide shot resolves
+    const r = svg.getBoundingClientRect();
+    const anchorY = lerp(innerHeight/2 - r.top, H/2, ss(0.85, 1, p));
+    cam.setAttribute("transform", `translate(${W/2 - z*cx} ${anchorY - z*cy}) scale(${z})`);
+
+    for (const n of [...labels, ...years]) n.classList.toggle("on", p >= STAGE_AT[n.dataset.stage]);
+
+    const h = ss(0.86, 0.97, p);
+    hdr.style.opacity = h; rule.style.opacity = h;
+    hdr.style.transform = `translateY(${(1-h)*14}px)`;
+  }
+
+  /* ---------- drive ---------- */
+  let cur = FORCE ?? (HOME ? 1 : 0), target = 0;
   function targetP(){
     if (FORCE !== null) return FORCE;
-    if (HOME) return homeP;
+    if (HOME) return 1;                                    // condensed: the finished wide shot
     const z = document.getElementById("scrollzone");
     const r = z.getBoundingClientRect();
     const runway = z.offsetHeight - innerHeight;
     return Math.min(1, Math.max(0, -r.top / runway));
   }
-  // Home: a single eased sweep once the element is in view, then it holds
-  let homeP = 0;
-  if (HOME){
-    const io = new IntersectionObserver(es => {
-      if (!es[0].isIntersecting) return;
-      io.disconnect();
-      const t0 = performance.now(), D = 3200;
-      (function step(now){
-        const t = Math.min(1, (now - t0) / D);
-        homeP = 1 - Math.pow(1 - t, 3);               // ease-out
-        if (t < 1) requestAnimationFrame(step);
-      })(t0);
-    }, { threshold:0.35 });
-    io.observe(graph);
-  }
-
   function loop(){
-    if (graph.clientWidth !== W && graph.clientWidth > 0) build();   // self-heal if built at 0 width
+    if (graph.clientWidth !== W && graph.clientWidth > 0) build();
     target = targetP();
-    cur += (target - cur) * 0.09;                     // smooth follow
-    if (Math.abs(target - cur) < 0.0005) cur = target;
+    cur += (target - cur) * 0.085;
+    if (Math.abs(target - cur) < 0.0004) cur = target;
     apply(cur);
     requestAnimationFrame(loop);
   }
@@ -211,7 +229,7 @@
   build();
   addEventListener("resize", build);
   document.fonts.ready.then(build);
-  document.fonts.addEventListener("loadingdone", build);   // re-measure labels once the mono font lands
+  document.fonts.addEventListener("loadingdone", build);
   requestAnimationFrame(loop);
 })();
 </script>

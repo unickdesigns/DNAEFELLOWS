@@ -36,6 +36,7 @@
   .graph .lbl, .graph .yr{ opacity:0; transition:opacity .5s ease, transform .7s cubic-bezier(.2,.7,.2,1); transform:translateY(6px); }
   .graph .lbl.on, .graph .yr.on{ opacity:1; transform:translateY(0); }
   .graph .lbl.hi{ font-size:16px; font-weight:500; letter-spacing:.05em; }
+  .graph .tick{ font-size:24px; font-weight:500; letter-spacing:.06em; }
   .graph .glow{ filter:drop-shadow(0 0 6px rgba(161,111,255,.55)); }
 
   body.home .tracks-scroll{ height:auto; }
@@ -103,7 +104,7 @@
   const ss = (a,b,x) => smooth(clamp((x-a)/(b-a), 0, 1));
 
   /* ---------- build ---------- */
-  let W = 0, H = 0, svg, cam, parts = [], texts = [];
+  let W = 0, H = 0, svg, cam, parts = [], texts = [], tickG = null, tickEl = null;
   const LANE = HOME ? 42 : 68, RISE = HOME ? 100 : 150, TOP_PAD = 44, BOTTOM_PAD = 56;
   const GAP = 90;                                 // the chase: each newer line trails by this
 
@@ -166,6 +167,9 @@
       parts.push({ path, tailEl, clipRect, x0, rise, yLane, yFrom });
     });
 
+    tickG = el("g");
+    tickEl = el("text", { class:"tick", fill:TRACKS[0].color });
+    tickG.appendChild(tickEl); cam.appendChild(tickG);
     graph.appendChild(svg);
     for (const t of texts)
       t.wpx = Math.max(t.el.getComputedTextLength(), t.el.getBBox().width) + 6;
@@ -233,9 +237,8 @@
     /* past years' texts step aside while riding; the full legend returns at the end */
     const showAll = wide > 0.15;
     TRACKS.forEach((t, i) => {
-      const on = bornFlags[i] && (showAll || i === lead);
-      texts[i*2].el.classList.toggle("on", on);
-      texts[i*2+1].el.classList.toggle("on", on);
+      texts[i*2].el.classList.toggle("on", bornFlags[i] && (showAll || i === lead));
+      texts[i*2+1].el.classList.toggle("on", bornFlags[i] && showAll);
     });
     const z = Math.exp(lerp(Math.log(z0), 0, wide));           // -> zoom 1
     const fx = frontier.x - (W/(2*z0)) * 0.22;                 // tip rides ~60% across screen
@@ -258,6 +261,15 @@
       const ay = lerp(camBot - (k % 2 === 0 ? 28 : 50)/z, t.ay, wide);
       t.g.setAttribute("transform", `translate(${ax} ${ay}) scale(${inv})`);
     });
+
+    /* the year ticks by as you travel: ’04 ’05 ’06 … up to today */
+    if (tickEl){
+      const yrNow = Math.min(2026, Math.floor(T0 + (frontier.x / W) * (T1 - T0)));
+      tickEl.textContent = "’" + String(yrNow).slice(2);
+      tickEl.setAttribute("fill", TRACKS[lead].color);
+      tickG.setAttribute("opacity", 1 - wide);
+      tickG.setAttribute("transform", `translate(${camLeft + 28/z} ${camBot - 64/z}) scale(${inv})`);
+    }
 
     const h = ss(0.88, 0.98, p);
     hdr.style.opacity = h; rule.style.opacity = h;

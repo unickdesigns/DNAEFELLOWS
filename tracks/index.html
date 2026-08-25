@@ -22,13 +22,13 @@
 
   .tracks-scroll{ position:relative; height:700vh; }
   .tracks-sticky{ position:sticky; top:0; height:100vh; display:flex; align-items:center; overflow:hidden; }
-  .tracks{ width:min(1273px, 100% - 2*clamp(24px,5vw,84px)); margin:0 auto; }
+  .tracks{ width:min(1273px, 100% - 2*clamp(24px,5vw,84px)); margin:0 auto; position:relative; }
 
-  /* header floats over the scene and only resolves at the wide shot */
-  .tracks header{ display:block; margin-bottom:56px; opacity:0; }
-  .tracks .rule{ height:1px; background:var(--rule); margin-bottom:48px; opacity:0; }
+  /* header lives inside the graph frame (design: title top == top lane) */
+  .tracks header{ position:absolute; left:0; top:0; z-index:2; opacity:0; }
+  .tracks .rule{ display:none; }
   .tracks h2{ font-size:48px; font-weight:600; line-height:.9; letter-spacing:-0.01em; max-width:260px; }
-  .tracks .lede{ font-size:22px; font-weight:600; line-height:1.2; max-width:300px; margin-top:18px; }
+  .tracks .lede{ font-size:32px; font-weight:600; line-height:1.1; max-width:328px; margin-top:33px; }
 
   .graph{ position:relative; width:100%; }
   .graph svg{ display:block; width:100%; height:auto; overflow:visible; }
@@ -83,15 +83,14 @@
   if (qs.has("bare")) document.body.classList.add("bare");
   const FORCE = qs.has("p") ? parseFloat(qs.get("p")) : null;
 
-  /* ---------- data: linear time axis 2004..2028 ---------- */
-  const T0 = 2004, T1 = 2028;
-  const tx = y => (y - T0) / (T1 - T0);
+  /* ---------- data: designer positions (Figma 3024:34925) ---------- */
   const TRACKS = [
-    { yr:"’04", x:tx(2004), name:"Infrastructure",                        color:"#E2692F" },
-    { yr:"’06", x:tx(2006), name:"Defensive Cybersecurity",               color:"#2C60F5" },
-    { yr:"’18", x:tx(2018), name:"DevOps, Cloud & Platform Eng",          color:"#5AE082" },
-    { yr:"’25", x:tx(2025), name:"Agentic Engineering & AI/ML Platforms", color:"#A16FFF", hi:true },
+    { yr:"\u201904", year:2004, x:0.000, name:"Infrastructure",                        color:"#E2692F" },
+    { yr:"\u201906", year:2006, x:0.219, name:"Defensive Cybersecurity",               color:"#2C60F5" },
+    { yr:"\u201918", year:2018, x:0.448, name:"DevOps, Cloud & Platform Eng",          color:"#5AE082" },
+    { yr:"\u201925", year:2025, x:0.684, name:"Agentic Engineering & AI/ML Platforms", color:"#A16FFF" },
   ];
+  const YEAR_STOPS = [...TRACKS.map(t => [t.x, t.year]), [1, 2026]];
 
   const graph = document.getElementById("graph");
   const hdr = document.getElementById("hdr");
@@ -105,12 +104,14 @@
 
   /* ---------- build ---------- */
   let W = 0, H = 0, svg, cam, parts = [], texts = [], tickG = null, tickEl = null;
-  const LANE = HOME ? 42 : 68, RISE = HOME ? 100 : 150, TOP_PAD = 44, BOTTOM_PAD = 56;
+  let LANE = 100, RISE = 125, TOP_PAD = 8;                 // set per-width in build()
   const GAP = 90;                                 // the chase: each newer line trails by this
 
   function build(){
     W = graph.clientWidth;
-    H = TOP_PAD + LANE * (TRACKS.length - 1) + BOTTOM_PAD;
+    LANE = W * (121/1356);                                    // design lane spacing
+    RISE = LANE * 1.25;
+    H = TOP_PAD + LANE * (TRACKS.length - 1) + 140 * (W/1356);
     graph.innerHTML = "";
     svg = el("svg", { viewBox:`0 0 ${W} ${H}`, width:W, height:H });
     const defs = el("defs"); svg.appendChild(defs);
@@ -122,7 +123,7 @@
     TRACKS.forEach((t, i) => {
       const x0 = t.x * W;
       const yLane = base - LANE * i;
-      const sw = 3;
+      const sw = Math.max(3, 5 * (W/1356));
       const rise = i === 0 ? 0 : Math.min(RISE, (W - x0) * 0.5);
       const yFrom = yLane + LANE;
       const d = i === 0
@@ -144,15 +145,6 @@
         "stroke-linecap":"round", "clip-path":`url(#clip${i})` });
       cam.appendChild(path);
 
-      // fade-out tail past the right edge, shown once the line arrives there
-      const fg = el("linearGradient", { id:`fade${i}`, gradientUnits:"userSpaceOnUse", x1:W, y1:0, x2:W*1.28, y2:0 });
-      fg.append(el("stop", { offset:"0", "stop-color":t.color, "stop-opacity":"1" }),
-                el("stop", { offset:"1", "stop-color":t.color, "stop-opacity":"0" }));
-      defs.appendChild(fg);
-      const tailEl = el("path", { d:`M ${W} ${yLane} H ${W*1.28}`, fill:"none",
-        stroke:`url(#fade${i})`, "stroke-width":sw, opacity:0 });
-      cam.appendChild(tailEl);
-
       // labels & years live at fixed UI size: counter-scaled against the camera
       const mkText = (cls, str, ax, ay) => {
         const gg = el("g");
@@ -161,10 +153,11 @@
         gg.appendChild(txt); cam.appendChild(gg);
         texts.push({ el:txt, g:gg, ax, ay, track:i });
       };
-      mkText("lbl", t.name, x0, base + 56);
-      mkText("yr", t.yr, x0, base + 34);
+      const lx = x0 + 12 * (W/1356);
+      mkText("lbl", t.name, lx, base + 122 * (W/1356));
+      mkText("yr", t.yr, lx, base + 90 * (W/1356));
 
-      parts.push({ path, tailEl, clipRect, x0, rise, yLane, yFrom });
+      parts.push({ path, clipRect, x0, rise, yLane, yFrom });
     });
 
     tickG = el("g");
@@ -225,7 +218,6 @@
       const tip = clamp(head - i*GAP, pt.x0, W*1.30);
       const born = tip > pt.x0 + 1;
       pt.clipRect.setAttribute("width", born ? Math.max(0, tip - pt.x0) : 0);
-      pt.tailEl.setAttribute("opacity", ss(W - 2, W + 60, tip));
       if (born){ lead = i; frontier = tipOf(pt, Math.min(tip, W)); }
       bornFlags[i] = born;
     });
@@ -256,15 +248,20 @@
     const camBot = (innerHeight - r.top - anchorY)/z + cy;    // world y at the viewport bottom
     texts.forEach((t, k) => {
       let ax = t.ax;
-      if (k % 2 === 0)                                        // names slide; years stay on their moment
-        ax = lerp(Math.min(Math.max(t.ax, camLeft + 28/z), camRight - (t.wpx + 28)/z), t.ax, wide);
+      if (k % 2 === 0)                                        // names ride the viewport edge, then settle
+        ax = lerp(camLeft + 28/z, t.ax, wide);
       const ay = lerp(camBot - (k % 2 === 0 ? 28 : 50)/z, t.ay, wide);
       t.g.setAttribute("transform", `translate(${ax} ${ay}) scale(${inv})`);
     });
 
     /* the year ticks by as you travel: ’04 ’05 ’06 … up to today */
     if (tickEl){
-      const yrNow = Math.min(2026, Math.floor(T0 + (frontier.x / W) * (T1 - T0)));
+      const fx = frontier.x / W;
+      let yrNow = 2026;
+      for (let i = 0; i < YEAR_STOPS.length - 1; i++){
+        const [xa, ya] = YEAR_STOPS[i], [xb, yb] = YEAR_STOPS[i+1];
+        if (fx <= xb){ yrNow = Math.floor(lerp(ya, yb, (fx - xa) / (xb - xa))); break; }
+      }
       tickEl.textContent = "’" + String(yrNow).slice(2);
       tickEl.setAttribute("fill", TRACKS[lead].color);
       tickG.setAttribute("opacity", 1 - wide);

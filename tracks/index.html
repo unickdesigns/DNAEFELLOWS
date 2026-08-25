@@ -20,7 +20,7 @@
   .filler{ height:60vh; display:flex; align-items:flex-end; padding:0 clamp(24px,5vw,84px) 48px;
     font-family:var(--mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:rgba(200,209,214,.35); }
 
-  .tracks-scroll{ position:relative; height:420vh; }
+  .tracks-scroll{ position:relative; height:700vh; }
   .tracks-sticky{ position:sticky; top:0; height:100vh; display:flex; align-items:center; overflow:hidden; }
   .tracks{ width:min(1273px, 100% - 2*clamp(24px,5vw,84px)); margin:0 auto; }
 
@@ -36,7 +36,7 @@
   .graph .lbl, .graph .yr{ opacity:0; transition:opacity .5s ease, transform .7s cubic-bezier(.2,.7,.2,1); transform:translateY(6px); }
   .graph .lbl.on, .graph .yr.on{ opacity:1; transform:translateY(0); }
   .graph .lbl.hi{ font-size:16px; font-weight:500; letter-spacing:.05em; }
-  .graph .tick{ font-size:24px; font-weight:500; letter-spacing:.06em; }
+  .graph .tick{ font-size:16px; font-weight:500; letter-spacing:.06em; }
   .graph .glow{ filter:drop-shadow(0 0 6px rgba(161,111,255,.55)); }
 
   body.home .tracks-scroll{ height:auto; }
@@ -289,7 +289,7 @@
   function loop(){
     if (graph.clientWidth !== W && graph.clientWidth > 0) build();
     target = targetP();
-    cur += (target - cur) * 0.085;
+    cur += (target - cur) * 0.07;
     if (Math.abs(target - cur) < 0.0004) cur = target;
     apply(cur);
     requestAnimationFrame(loop);

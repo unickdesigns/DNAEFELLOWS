@@ -282,15 +282,16 @@
 
   /* ---------- loop ---------- */
   let cur = FORCE ?? (HOME ? 1 : 0), target = 0;
-  let latched = 0;
+  let done = false;
   function targetP(){
     if (FORCE !== null) return FORCE;
     if (HOME) return 1;
     const z = document.getElementById("scrollzone");
     const zr = z.getBoundingClientRect();
     const runway = z.offsetHeight - innerHeight;
-    latched = Math.max(latched, clamp(-zr.top / runway, 0, 1));   // no rewind on the way back up
-    return latched;
+    const raw = clamp(-zr.top / runway, 0, 1);
+    if (raw >= 0.995) done = true;          // scrubs both ways mid-sequence…
+    return done ? 1 : raw;                  // …locks only once the story has finished
   }
   function loop(){
     if (graph.clientWidth !== W && graph.clientWidth > 0) build();

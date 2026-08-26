@@ -104,7 +104,8 @@
   const ss = (a,b,x) => smooth(clamp((x-a)/(b-a), 0, 1));
 
   /* ---------- build ---------- */
-  let W = 0, H = 0, svg, cam, parts = [], texts = [], tickG = null, tickEl = null, camS = null;
+  let W = 0, H = 0, svg, cam, parts = [], texts = [], tickG = null, tickEl = null, rideEl = null, camS = null;
+  let leadShown = -1, leadFadeT = 0;
   let LANE = 100, RISE = 125, TOP_PAD = 8;                 // set per-width in build()
   const GAP = 90;                                 // the chase: each newer line trails by this
 
@@ -164,7 +165,8 @@
 
     tickG = el("g");
     tickEl = el("text", { class:"tick", fill:TRACKS[0].color });
-    tickG.appendChild(tickEl); cam.appendChild(tickG);
+    rideEl = el("text", { class:"lbl on", y:26, fill:TRACKS[0].color });
+    tickG.append(tickEl, rideEl); cam.appendChild(tickG);
     graph.appendChild(svg);
     for (const t of texts)
       t.wpx = Math.max(t.el.getComputedTextLength(), t.el.getBBox().width) + 6;
@@ -261,7 +263,8 @@
     for (const t of texts)
       t.g.setAttribute("transform", `translate(${t.ax} ${t.ay}) scale(${inv})`);
 
-    /* the year ticks by as you travel: ’04 ’05 ’06 … up to today */
+    /* the year ticks by as you travel, with the current track’s title
+       crossfading in beneath it — one by one: ’04 Infrastructure, ’06 … */
     if (tickEl){
       const fx = frontier.x / W;
       let yrNow = 2026;
@@ -269,10 +272,16 @@
         const [xa, ya] = YEAR_STOPS[i], [xb, yb] = YEAR_STOPS[i+1];
         if (fx <= xb){ yrNow = Math.floor(lerp(ya, yb, (fx - xa) / (xb - xa))); break; }
       }
+      if (lead !== leadShown){ leadShown = lead; leadFadeT = performance.now(); }
+      const born = Math.min(1, (performance.now() - leadFadeT) / 450);
+      const hide = 1 - ss(0, 0.4, wide);
       tickEl.textContent = "’" + String(yrNow).slice(2);
       tickEl.setAttribute("fill", TRACKS[lead].color);
-      tickG.setAttribute("opacity", 1 - ss(0, 0.4, wide));
-      tickG.setAttribute("transform", `translate(${camLeft + 28/z} ${camBot - 64/z}) scale(${inv})`);
+      tickEl.setAttribute("opacity", hide);
+      rideEl.textContent = TRACKS[lead].name;
+      rideEl.setAttribute("fill", TRACKS[lead].color);
+      rideEl.setAttribute("opacity", born * hide);
+      tickG.setAttribute("transform", `translate(${camLeft + 28/z} ${camBot - 92/z}) scale(${inv})`);
     }
 
     const h = ss(0.88, 0.98, p);

@@ -53,6 +53,7 @@
     .tracks .lede{ font-size:22px; padding-left:0; }
     .graph text{ font-size:11px; }
     .graph .lbl.hi{ font-size:12px; }
+    .tracks header{ position:static; margin-bottom:32px; }
   }
 </style>
 </head>
@@ -103,11 +104,12 @@
   const ss = (a,b,x) => smooth(clamp((x-a)/(b-a), 0, 1));
 
   /* ---------- build ---------- */
-  let W = 0, H = 0, svg, cam, parts = [], texts = [], tickG = null, tickEl = null;
+  let W = 0, H = 0, svg, cam, parts = [], texts = [], tickG = null, tickEl = null, camS = null;
   let LANE = 100, RISE = 125, TOP_PAD = 8;                 // set per-width in build()
   const GAP = 90;                                 // the chase: each newer line trails by this
 
   function build(){
+    camS = null;
     W = graph.clientWidth;
     LANE = W * (121/1356);                                    // design lane spacing
     RISE = LANE * 1.25;
@@ -222,37 +224,42 @@
       bornFlags[i] = born;
     });
 
-    /* camera: follow the newest tip, hand off to the wide shot at the end */
+    /* camera: a newborn line grows left->right from its date anchor;
+       once long enough, the camera hands over to tip-following. */
     const z0 = zoomAt(p);
     const wide = ss(P_WIDE[0], P_WIDE[1], p);
 
     /* past years' texts step aside while riding; the full legend returns at the end */
     const showAll = wide > 0.15;
     TRACKS.forEach((t, i) => {
-      texts[i*2].el.classList.toggle("on", bornFlags[i] && (showAll || i === lead));
+      texts[i*2].el.classList.toggle("on", bornFlags[i] && showAll);
       texts[i*2+1].el.classList.toggle("on", bornFlags[i] && showAll);
     });
-    const z = Math.exp(lerp(Math.log(z0), 0, wide));           // -> zoom 1
-    const fx = frontier.x - (W/(2*z0)) * 0.22;                 // tip rides ~60% across screen
-    const cx = lerp(fx, W/2, wide);
-    const cy = lerp(frontier.y, H/2, wide);
+    const zDes = Math.exp(lerp(Math.log(z0), 0, wide));        // -> zoom 1
+    const leadX0 = parts[lead].x0;
+    const cxDes = lerp(Math.max(frontier.x - 0.12*W/z0,        // tip rides ~62% across
+                                leadX0 + 0.40*W/z0),           // …but the origin starts at ~10%
+                       W/2, wide);
+    const cyDes = lerp(frontier.y, H/2, wide);
+    // the camera itself is smoothed, so lead hand-offs glide instead of jumping
+    if (!camS || FORCE !== null) camS = { x:cxDes, y:cyDes, z:zDes };
+    else {
+      const k = 0.1;
+      camS.x += (cxDes - camS.x) * k;
+      camS.y += (cyDes - camS.y) * k;
+      camS.z = Math.exp(Math.log(camS.z) + (Math.log(zDes) - Math.log(camS.z)) * k);
+    }
+    const z = camS.z, cx = camS.x, cy = camS.y;
     const r = svg.getBoundingClientRect();
     const anchorY = lerp(innerHeight/2 - r.top, H/2, wide);
     cam.setAttribute("transform", `translate(${W/2 - z*cx} ${anchorY - z*cy}) scale(${z})`);
 
-    /* text stays UI-sized: counter-scale each label around its anchor.
-       track labels slide along their lane (map-style) while immersed,
-       and settle back onto their design position at the wide shot. */
+    /* text stays UI-sized and NEVER travels: it fades in at its design position */
     const inv = 1/z;
-    const camLeft = cx - (W/2)/z, camRight = cx + (W/2)/z;
+    const camLeft = cx - (W/2)/z;
     const camBot = (innerHeight - r.top - anchorY)/z + cy;    // world y at the viewport bottom
-    texts.forEach((t, k) => {
-      let ax = t.ax;
-      if (k % 2 === 0)                                        // names ride the viewport edge, then settle
-        ax = lerp(camLeft + 28/z, t.ax, wide);
-      const ay = lerp(camBot - (k % 2 === 0 ? 28 : 50)/z, t.ay, wide);
-      t.g.setAttribute("transform", `translate(${ax} ${ay}) scale(${inv})`);
-    });
+    for (const t of texts)
+      t.g.setAttribute("transform", `translate(${t.ax} ${t.ay}) scale(${inv})`);
 
     /* the year ticks by as you travel: ’04 ’05 ’06 … up to today */
     if (tickEl){
@@ -264,7 +271,7 @@
       }
       tickEl.textContent = "’" + String(yrNow).slice(2);
       tickEl.setAttribute("fill", TRACKS[lead].color);
-      tickG.setAttribute("opacity", 1 - wide);
+      tickG.setAttribute("opacity", 1 - ss(0, 0.4, wide));
       tickG.setAttribute("transform", `translate(${camLeft + 28/z} ${camBot - 64/z}) scale(${inv})`);
     }
 
@@ -275,13 +282,15 @@
 
   /* ---------- loop ---------- */
   let cur = FORCE ?? (HOME ? 1 : 0), target = 0;
+  let latched = 0;
   function targetP(){
     if (FORCE !== null) return FORCE;
     if (HOME) return 1;
     const z = document.getElementById("scrollzone");
     const zr = z.getBoundingClientRect();
     const runway = z.offsetHeight - innerHeight;
-    return clamp(-zr.top / runway, 0, 1);
+    latched = Math.max(latched, clamp(-zr.top / runway, 0, 1));   // no rewind on the way back up
+    return latched;
   }
   function loop(){
     if (graph.clientWidth !== W && graph.clientWidth > 0) build();

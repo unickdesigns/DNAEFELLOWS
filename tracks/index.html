@@ -277,10 +277,10 @@
       const hide = 1 - ss(0, 0.4, wide);
       tickEl.textContent = "’" + String(yrNow).slice(2);
       tickEl.setAttribute("fill", TRACKS[lead].color);
-      tickEl.setAttribute("opacity", hide);
+      tickEl.style.opacity = hide;
       rideEl.textContent = TRACKS[lead].name;
       rideEl.setAttribute("fill", TRACKS[lead].color);
-      rideEl.setAttribute("opacity", born * hide);
+      rideEl.style.opacity = born * hide;
       tickG.setAttribute("transform", `translate(${camLeft + 28/z} ${camBot - 92/z}) scale(${inv})`);
     }
 

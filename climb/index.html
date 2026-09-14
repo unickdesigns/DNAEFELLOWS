@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>eFellows — over every mountain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html{ scroll-behavior:auto; }
+  body{ background:#15191C; font-family:"Upton","Oswald",sans-serif; }
+  canvas#gl{ position:fixed; inset:0; width:100vw; height:100vh; display:block; z-index:2; }
+  .scrollspace{ height:800vh; }
+
+  /* the type sits BEHIND the dot canvas — the people pass in front of it */
+  .finale{
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:0; pointer-events:none; z-index:1;
+  }
+  .fline{
+    font-size:clamp(56px,11.5vw,160px); font-weight:600; letter-spacing:-0.01em;
+    line-height:1.04; color:#C8D1D6; white-space:nowrap; opacity:0;
+  }
+
+  /* ---- tuning panel (press H) ---- */
+  .panel{
+    position:fixed; top:14px; right:14px; z-index:50; width:240px;
+    background:rgba(13,15,17,.94); border:1px solid #262b31; border-radius:12px;
+    padding:14px 16px; font-family:-apple-system,system-ui,sans-serif; font-size:12px;
+    color:#cdd4dd; display:none; backdrop-filter:blur(8px);
+  }
+  .panel.open{ display:block; }
+  .panel h3{ font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:#77828e; margin-bottom:10px; font-weight:600; }
+  .panel .row{ margin-bottom:10px; }
+  .panel label{ display:flex; justify-content:space-between; margin-bottom:4px; }
+  .panel label span{ color:#77828e; font-variant-numeric:tabular-nums; }
+  .panel input[type=range]{ -webkit-appearance:none; width:100%; height:2px; background:#2a3038; outline:none; }
+  .panel input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:#e7ecf2; cursor:pointer; }
+  .panel button{
+    font:inherit; width:100%; margin-top:4px; padding:7px 0; color:#cdd4dd;
+    background:#1c2127; border:1px solid #2a3038; border-radius:8px; cursor:pointer;
+  }
+  .panel button:hover{ background:#242a31; }
+  .panel .hint{ margin-top:8px; color:#59636e; font-size:10.5px; }
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+<video id="src" src="footage.webm" muted playsinline preload="auto" style="display:none"></video>
+<div class="scrollspace"></div>
+<div class="finale">
+  <div class="fline">Well architected.</div>
+  <div class="fline">Exceptionally delivered.</div>
+</div>
+
+<div class="panel" id="panel">
+  <h3>Dot screen</h3>
+  <div class="row"><label>Density (cols) <span id="vCols"></span></label><input type="range" id="cCols" min="36" max="150" step="2"></div>
+  <div class="row"><label>Dot size <span id="vSize"></span></label><input type="range" id="cSize" min="0.3" max="1.6" step="0.02"></div>
+  <div class="row"><label>Contrast (gamma) <span id="vGamma"></span></label><input type="range" id="cGamma" min="0.8" max="4" step="0.05"></div>
+  <div class="row"><label>Threshold <span id="vThr"></span></label><input type="range" id="cThr" min="0" max="0.4" step="0.01"></div>
+  <div class="row"><label>Softness <span id="vSoft"></span></label><input type="range" id="cSoft" min="0.02" max="0.5" step="0.01"></div>
+  <div class="row"><label>Jitter <span id="vJit"></span></label><input type="range" id="cJit" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Size variance <span id="vRnd"></span></label><input type="range" id="cRnd" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Balance L→R <span id="vBal"></span></label><input type="range" id="cBal" min="0" max="0.7" step="0.01"></div>
+  <div class="row"><label>Sky dot size <span id="vSkyS"></span></label><input type="range" id="cSkyS" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Sky opacity <span id="vSkyA"></span></label><input type="range" id="cSkyA" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Remove sky <span id="vSkyR"></span></label><input type="range" id="cSkyR" min="0" max="1" step="0.02"></div>
+  <div class="row"><label>Colour amount <span id="vColA"></span></label><input type="range" id="cColA" min="0" max="0.5" step="0.01"></div>
+  <div class="row"><label>Text dot size <span id="vTxt"></span></label><input type="range" id="cTxt" min="1" max="6" step="0.1"></div>
+  <button id="invBtn"></button>
+  <button id="copyCfg">⧉ Copy settings</button>
+  <div class="hint">H toggles this panel · ?p=0.9 pins scroll</div>
+</div>
+
+<script>
+(async () => {
+  const TAU = Math.PI * 2;
+  const canvas = document.getElementById("gl");
+  const ctx = canvas.getContext("2d");
+  const video = document.getElementById("src");
+  const qs = new URLSearchParams(location.search);
+  const FORCE_P = qs.has("p") ? parseFloat(qs.get("p")) : null;
+
+  const BG = "#0b0d0e";
+  const lerp = (a,b,t) => a + (b-a)*t;
+  const smooth = t => t*t*(3-2*t);
+  const ss = (a,b,x) => { const t = Math.min(1, Math.max(0, (x-a)/(b-a))); return smooth(t); };
+
+  /* ---------- tunables (press H for the panel) ---------- */
+  const CFG = {
+    cols: 66,          // grid density (dots across the width)
+    dotScale: 0.5,     // overall dot size
+    gamma: 2.4,        // luminance -> size contrast (higher = sparser highlights)
+    threshold: 0.4,    // ink level where subject dots start to appear (max 0.4)
+    soften: 0.5,       // …feathered over this range (eased, not a hard cut)
+    skySize: 0.18,     // size of the faint background/sky dots (0 removes them)
+    skyAlpha: 0,       // opacity of the background/sky dots (0 removes them)
+    skyRemove: 1,      // suppress blue-ish (sky) pixels regardless of brightness; 1 = sky fully gone
+    jitter: 0.54,      // 0 = perfect grid, 1 = dots wander half a cell
+    sizeRnd: 0.78,     // per-dot size variance
+    balance: 0.49,     // darkens the (bright) left edge to even the frame out
+    colorAmt: 0,       // fraction of dots that take a brand colour (0 = pure minimal grey)
+    textDot: 2.6,      // px radius of the letter dots
+    invert: true,      // true: dots are the dark stuff (rocks/people), sky stays black
+  };
+  const DOT = [118, 122, 125];                                   // #767A7D
+  const ACCENTS = [[226,105,47], [44,96,245], [90,224,130]];     // E2692F / 2C60F5 / 5AE082
+
+  /* ---------- video ready ---------- */
+  await new Promise(res => {
+    if (video.readyState >= 1) return res();
+    video.addEventListener("loadedmetadata", res, { once: true });
+  });
+  const VDUR = video.duration;
+
+  /* ---------- story ---------- */
+  const P_SCRUB = [0.00, 0.72];          // the film, scrubbed by scroll
+  const P_TXT   = [0.74, 0.88];          // the people's dots fly out and draw the words
+  const P_FOCUS = [0.85, 0.95];          // crisp type resolves as the dots settle
+  const P_GONE  = [0.92, 0.99];          // the dots dissolve into the type
+
+  /* ---------- sampling grid ---------- */
+  const samp = document.createElement("canvas");
+  const sctx = samp.getContext("2d", { willReadFrequently: true });
+  let W = 0, Hh = 0, dpr = 1, COLS = 0, ROWS = 0, CELL = 0;
+  let txtAssign = null;                   // cellIndex -> {x, y, line, seed}
+  let RND = null;                         // stable per-cell randomness [jx, jy, size] triplets
+  function resize(){
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; Hh = innerHeight;
+    canvas.width = W*dpr; canvas.height = Hh*dpr;
+    COLS = Math.max(24, Math.min(CFG.cols, Math.round(W/6)));
+    CELL = W / COLS;
+    ROWS = Math.ceil(Hh / CELL);
+    samp.width = COLS; samp.height = ROWS;
+    txtAssign = null;
+    RND = new Float32Array(COLS*ROWS*4);        // jitter-x, jitter-y, size, stagger
+    for (let ci = 0; ci < COLS*ROWS; ci++){
+      const cx = ci % COLS, cy = (ci - cx) / COLS;
+      const h = n => { const s = Math.sin(cx*127.1 + cy*311.7 + n*74.7) * 43758.5453; return s - Math.floor(s); };
+      RND[ci*4] = h(1) - 0.5; RND[ci*4+1] = h(2) - 0.5; RND[ci*4+2] = h(3); RND[ci*4+3] = h(4);
+    }
+  }
+  addEventListener("resize", resize); resize();
+
+  /* draw the current video frame into the grid — FLIPPED horizontally, cover-fit */
+  function sampleFrame(){
+    const vw = video.videoWidth || 898, vh = video.videoHeight || 506;
+    const sAsp = COLS/ROWS, vAsp = vw/vh;
+    let sx = 0, sy = 0, sw = vw, sh = vh;
+    if (vAsp > sAsp){ sw = vh * sAsp; sx = (vw - sw)/2; }
+    else            { sh = vw / sAsp; sy = (vh - sh)/2; }
+    sctx.save();
+    sctx.scale(-1, 1);                    // the horizontal flip
+    sctx.drawImage(video, sx, sy, sw, sh, -COLS, 0, COLS, ROWS);
+    sctx.restore();
+    return sctx.getImageData(0, 0, COLS, ROWS).data;
+  }
+
+  /* ---------- the words, drawn from their own dots ----------
+     sample the finale glyphs; each point gets a fresh dot that scatters in
+     from around the type — the people's dots are left alone. */
+  const flines = [...document.querySelectorAll(".fline")];
+  document.fonts.ready.then(() => { txtAssign = null; });
+  function buildTextAssign(){
+    const pts = [];
+    const cnv = document.createElement("canvas");
+    for (let li = 0; li < flines.length; li++){
+      const el = flines[li], rect = el.getBoundingClientRect(), cs = getComputedStyle(el);
+      const w = Math.ceil(rect.width) + 8, h = Math.ceil(rect.height) + 8;
+      cnv.width = w; cnv.height = h;
+      const c2 = cnv.getContext("2d", { willReadFrequently: true });
+      c2.font = `${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`;
+      c2.textBaseline = "middle"; c2.fillStyle = "#fff";
+      c2.fillText(el.textContent, 0, h/2);
+      const step = Math.max(3, parseFloat(cs.fontSize) / 10);
+      const data = c2.getImageData(0, 0, w, h).data;
+      for (let y = 0; y < h; y += step) for (let x = 0; x < w; x += step){
+        if (data[((y|0)*w + (x|0))*4 + 3] > 120){
+          const seed = ((x*7 + y*13) % 97) / 97;
+          const ang = seed * TAU * 5.3, dist = 120 + 320 * ((seed*11.7) % 1);
+          pts.push({ x: rect.left + x, y: rect.top + y, line: li, seed,
+                     sx: rect.left + x + Math.cos(ang)*dist,
+                     sy: rect.top + y + Math.sin(ang)*dist*0.6 });
+        }
+      }
+    }
+    txtAssign = pts;
+  }
+
+  /* ---------- scrub ---------- */
+  let pS = FORCE_P ?? 0;
+  function wantTime(p){ return Math.min(VDUR - 0.08, ss(P_SCRUB[0], P_SCRUB[1], p) * (VDUR - 0.35) + 0.2); }
+  let lastSeek = -1;
+  function scrub(p){
+    const target = wantTime(Math.min(p, P_TXT[0]));    // hold the last frame while the words form
+    if (Math.abs(target - lastSeek) > 0.04 && video.seekable.length){
+      lastSeek = target;
+      video.currentTime = target;
+    }
+  }
+
+  function draw(time){
+    const p = pS;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, Hh);               // transparent — the type lives behind this canvas
+
+    const loadT = Math.min(1, Math.max(0, (time - 250) / 1900));   // load-time reveal window
+    const tx2 = ss(P_TXT[0], P_TXT[1], p);
+    const gone = ss(P_GONE[0], P_GONE[1], p);
+    const px = sampleFrame();
+    if (tx2 > 0 && !txtAssign) buildTextAssign();
+    if (tx2 <= 0) txtAssign = null;
+
+    const rMax = CELL * 0.5;
+    for (let cy = 0; cy < ROWS; cy++){
+      for (let cx = 0; cx < COLS; cx++){
+        const ci = cy*COLS + cx;
+        const i = ci * 4;
+        const R = px[i], G = px[i+1], B = px[i+2];
+        const stag = RND[ci*4+3];
+        const lum = (R*0.299 + G*0.587 + B*0.114) / 255;
+        let ink = CFG.invert ? 1 - lum : lum;       // inverted: the dark stuff is the ink
+        // sky is blue-dominant even when dim — suppress it by colour, not brightness
+        ink *= 1 - CFG.skyRemove * ss(0.015, 0.10, (B - R) / 255);
+
+        // eased threshold: subject dots feather in across [threshold .. threshold+soften]
+        const mask = ss(CFG.threshold, CFG.threshold + Math.max(0.02, CFG.soften), ink);
+        const sizeVar = 1 + (RND[ci*4+2] - 0.5) * 1.6 * CFG.sizeRnd;
+        // left-right balance: gently shrink dots toward the (bright) left edge
+        const bal = 1 - CFG.balance * (1 - cx/(COLS-1));
+        // the sky layer: faint dots where the subject isn't (0 size/opacity removes them)
+        const skyR = rMax * 0.5 * CFG.skySize * (0.25 + 0.75*ink) * (1 - mask);
+        let r = (rMax * Math.pow(ink, CFG.gamma) * CFG.dotScale * mask + skyR) * sizeVar * bal;
+        const baseA = CFG.skyAlpha <= 0 && mask <= 0 ? 0 : lerp(CFG.skyAlpha, 1, mask);
+        if (skyR > 0 && CFG.skyAlpha <= 0 && mask < 0.02) r = 0;
+        const x = (cx + 0.5 + RND[ci*4]   * CFG.jitter) * CELL,
+              y = (cy + 0.5 + RND[ci*4+1] * CFG.jitter) * CELL;
+
+        // colour: base grey, with a stable subset flashing the brand gradient
+        let col;
+        if (CFG.invert){
+          const cr = (RND[ci*4+2]*7.31) % 1;                 // stable colour lottery
+          col = cr < CFG.colorAmt
+            ? ACCENTS[Math.floor(cr / CFG.colorAmt * 3) % 3]
+            : DOT;
+          col = `rgb(${col[0]},${col[1]},${col[2]})`;
+        } else {
+          col = `rgb(${R},${G},${B})`;
+        }
+
+        // load: dots appear one by one, eased, in random order
+        const born = ss(stag*0.7, stag*0.7 + 0.3, loadT);
+        r *= born;
+        const alpha = born > 0 ? baseA * (0.35 + 0.65*born) : 0;
+
+        if (r < 0.3 || alpha <= 0.01) continue;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+      }
+    }
+
+    /* the words draw themselves from their own dots (over the type, never from the people) */
+    if (tx2 > 0 && txtAssign){
+      ctx.fillStyle = "#C8D1D6";
+      for (const pt of txtAssign){
+        const e = smooth(ss(pt.seed*0.5 + pt.line*0.15, pt.seed*0.5 + pt.line*0.15 + 0.35, tx2));
+        if (e <= 0.01) continue;
+        let r = CFG.textDot * (0.25 + 0.75*e);
+        if (gone > 0) r *= (1 - ss(pt.seed*0.5, pt.seed*0.5 + 0.5, gone));   // removed in the end
+        if (r < 0.25) continue;
+        ctx.globalAlpha = Math.min(1, e*1.4);
+        ctx.beginPath();
+        ctx.arc(lerp(pt.sx, pt.x, e), lerp(pt.sy, pt.y, e), r, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    /* crisp type resolves out of the dots — DNA focus-pull */
+    flines.forEach((el, li) => {
+      const f = ss(P_FOCUS[0] + li*0.022, P_FOCUS[1] + li*0.022, p);
+      el.style.opacity = f;
+      el.style.filter = `blur(${(1-f)*9}px)`;
+    });
+  }
+
+  /* ---------- tuning panel ---------- */
+  const panel = document.getElementById("panel");
+  addEventListener("keydown", e => { if (e.key === "h" || e.key === "H") panel.classList.toggle("open"); });
+  const wire = (id, valId, key, fmt, after) => {
+    const el = document.getElementById(id), lab = document.getElementById(valId);
+    el.value = CFG[key]; lab.textContent = fmt(CFG[key]);
+    el.addEventListener("input", () => {
+      CFG[key] = parseFloat(el.value);
+      lab.textContent = fmt(CFG[key]);
+      if (after) after();
+      txtAssign = null;
+    });
+  };
+  wire("cCols", "vCols", "cols", v => v, resize);
+  wire("cSize", "vSize", "dotScale", v => Math.round(v*100) + "%");
+  wire("cGamma", "vGamma", "gamma", v => (+v).toFixed(2));
+  wire("cThr", "vThr", "threshold", v => (+v).toFixed(2));
+  wire("cSoft", "vSoft", "soften", v => (+v).toFixed(2));
+  wire("cJit", "vJit", "jitter", v => Math.round(v*100) + "%");
+  wire("cRnd", "vRnd", "sizeRnd", v => Math.round(v*100) + "%");
+  wire("cBal", "vBal", "balance", v => Math.round(v*100) + "%");
+  wire("cSkyS", "vSkyS", "skySize", v => Math.round(v*100) + "%");
+  wire("cSkyA", "vSkyA", "skyAlpha", v => Math.round(v*100) + "%");
+  wire("cSkyR", "vSkyR", "skyRemove", v => Math.round(v*100) + "%");
+  wire("cColA", "vColA", "colorAmt", v => Math.round(v*100) + "%");
+  wire("cTxt", "vTxt", "textDot", v => (+v).toFixed(1) + "px");
+  const invBtn = document.getElementById("invBtn");
+  const invLabel = () => { invBtn.textContent = CFG.invert ? "Dots: rocks & people" : "Dots: sky"; };
+  invLabel();
+  invBtn.addEventListener("click", () => { CFG.invert = !CFG.invert; invLabel(); txtAssign = null; });
+  document.getElementById("copyCfg").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(JSON.stringify(CFG, null, 2)); } catch(e){}
+  });
+
+  /* ---------- scroll + loop ---------- */
+  function targetP(){
+    if (FORCE_P !== null) return FORCE_P;
+    const max = document.documentElement.scrollHeight - innerHeight;
+    return max > 0 ? Math.min(1, Math.max(0, scrollY / max)) : 0;
+  }
+  function loop(time){
+    const tp = targetP();
+    pS += (tp - pS) * 0.10;
+    if (Math.abs(tp - pS) < 0.0004) pS = tp;
+    scrub(pS);
+    draw(time);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
